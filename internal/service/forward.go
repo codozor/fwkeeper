@@ -75,7 +75,7 @@ func (f *Forwarder) Start(ctx context.Context) {
 			break
 		}
 
-		podName, err := f.locator.locate()
+		podName, err := f.locator.locate(ctx)
 		if err != nil{
 			log.Error().Err(err).Msgf("ERROR - Forwarder %s(%s %s) %v", f.configuration.Name, f.configuration.Namespace, f.configuration.Resource, f.configuration.Ports)
 			f.delayRetry(ctx)
