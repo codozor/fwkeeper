@@ -65,10 +65,15 @@ func NewForwarder(locator Locator, configuration config.PortForwardConfiguration
 	}, nil
 }
 
+// forwarderInfo returns a formatted string with forwarder details for logging
+func (f *Forwarder) forwarderInfo() string {
+	return fmt.Sprintf("%s(%s %s) ports:%v", f.configuration.Name, f.configuration.Namespace, f.configuration.Resource, f.configuration.Ports)
+}
+
 func (f *Forwarder) Start(ctx context.Context) {
 	log := zerolog.Ctx(ctx)
 
-	log.Info().Msgf("START - Forwarder %s(%s %s) %v", f.configuration.Name, f.configuration.Namespace, f.configuration.Resource, f.configuration.Ports)
+	log.Info().Msgf("START - Forwarder %s", f.forwarderInfo())
 
 	for {
 		if ctx.Err() != nil {
@@ -76,22 +81,22 @@ func (f *Forwarder) Start(ctx context.Context) {
 		}
 
 		podName, err := f.locator.locate(ctx)
-		if err != nil{
-			log.Error().Err(err).Msgf("ERROR - Forwarder %s(%s %s) %v", f.configuration.Name, f.configuration.Namespace, f.configuration.Resource, f.configuration.Ports)
+		if err != nil {
+			log.Error().Err(err).Msgf("ERROR - Forwarder %s", f.forwarderInfo())
 			f.delayRetry(ctx)
 			continue
 		}
 
 		pod, err := f.client.CoreV1().Pods(f.configuration.Namespace).Get(ctx, podName, metav1.GetOptions{})
 		if err != nil {
-			log.Error().Err(err).Msgf("ERROR - Forwarder %s(%s %s) %v", f.configuration.Name, f.configuration.Namespace, f.configuration.Resource, f.configuration.Ports)
+			log.Error().Err(err).Msgf("ERROR - Forwarder %s", f.forwarderInfo())
 			f.delayRetry(ctx)
 			continue
 		}
 
 		if pod.Status.Phase != corev1.PodRunning {
 			err := fmt.Errorf("pod not in running state")
-			log.Error().Err(err).Msgf("ERROR - Forwarder %s(%s %s) %v", f.configuration.Name, f.configuration.Namespace, f.configuration.Resource, f.configuration.Ports)
+			log.Error().Err(err).Msgf("ERROR - Forwarder %s", f.forwarderInfo())
 			f.delayRetry(ctx)
 			continue
 		}
@@ -117,7 +122,7 @@ func (f *Forwarder) Start(ctx context.Context) {
 
 		fw, err := portforward.New(dialer, f.configuration.Ports, stopCh, readyCh, outWriter, errWriter)
 		if err != nil {
-			log.Error().Err(err).Msgf("ERROR - Forwarder %s(%s %s) %v", f.configuration.Name, f.configuration.Namespace, f.configuration.Resource, f.configuration.Ports)
+			log.Error().Err(err).Msgf("ERROR - Forwarder %s", f.forwarderInfo())
 			f.delayRetry(ctx)
 			continue
 		}
@@ -135,19 +140,19 @@ func (f *Forwarder) Start(ctx context.Context) {
 
 		select {
 		case <- readyCh:
-			log.Info().Msgf("READY - Forwarder %s(%s %s) %v", f.configuration.Name, f.configuration.Namespace, f.configuration.Resource, f.configuration.Ports)
-		case <- errCh:
-			log.Error().Err(err).Msgf("ERROR - Forwarder %s(%s %s) %v", f.configuration.Name, f.configuration.Namespace, f.configuration.Resource, f.configuration.Ports)
+			log.Info().Msgf("READY - Forwarder %s", f.forwarderInfo())
+		case err = <- errCh:
+			log.Error().Err(err).Msgf("ERROR - Forwarder %s", f.forwarderInfo())
 			f.delayRetry(ctx)
 			continue
 		}
 
 		err = <- errCh
-		
-		log.Error().Err(err).Msgf("ERROR - Forwarder %s(%s %s) %v", f.configuration.Name, f.configuration.Namespace, f.configuration.Resource, f.configuration.Ports)
+
+		log.Error().Err(err).Msgf("ERROR - Forwarder %s", f.forwarderInfo())
 	}
 
-	log.Info().Msgf("STOP Forwarder %s(%s %s) %v", f.configuration.Name, f.configuration.Namespace, f.configuration.Resource, f.configuration.Ports)
+	log.Info().Msgf("STOP Forwarder %s", f.forwarderInfo())
 }
 
 func (f *Forwarder) delayRetry(ctx context.Context) {
