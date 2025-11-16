@@ -1,4 +1,4 @@
-package service
+package app
 
 import (
 	"context"
@@ -6,17 +6,16 @@ import (
 	"sync"
 
 	"github.com/rs/zerolog"
-
-	"github.com/samber/do/v2"
-
-	"k8s.io/client-go/transport/spdy"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	
+	"k8s.io/client-go/transport/spdy"
 
 	"github.com/codozor/fwkeeper/internal/config"
+	"github.com/codozor/fwkeeper/internal/forwarder"
+	"github.com/codozor/fwkeeper/internal/locator"
 )
 
+// Runner orchestrates multiple port forwarders and manages their lifecycle.
 type Runner struct {
 	configuration config.Configuration
 
@@ -26,7 +25,7 @@ type Runner struct {
 
 	restCfg *rest.Config
 
-	forwarders []*Forwarder
+	forwarders []*forwarder.Forwarder
 
 	cancel context.CancelFunc
 
@@ -37,61 +36,59 @@ type Runner struct {
 	upgrader spdy.Upgrader
 }
 
-func runnerProvider(injector do.Injector) (*Runner, error) {
-	configuration := do.MustInvoke[config.Configuration](injector)
-
-	logger := do.MustInvoke[zerolog.Logger](injector)
-
-	client := do.MustInvoke[kubernetes.Interface](injector)
-
-	restCfg := do.MustInvoke[*rest.Config](injector)
-
-	// SPDY Transport
-	transport, upgrader, err := spdy.RoundTripperFor(restCfg)
-    if err != nil {
-		return nil, err
-    }
-
-	return &Runner{ 
+// New creates a new Runner with all dependencies injected.
+func New(
+	configuration config.Configuration,
+	logger zerolog.Logger,
+	client kubernetes.Interface,
+	restCfg *rest.Config,
+	transport http.RoundTripper,
+	upgrader spdy.Upgrader,
+) *Runner {
+	return &Runner{
 		configuration: configuration,
-		logger: logger,
-		client: client,
-		restCfg: restCfg,
-		transport: transport,
-		upgrader: upgrader,
-	}, nil
+		logger:        logger,
+		client:        client,
+		restCfg:       restCfg,
+		transport:     transport,
+		upgrader:      upgrader,
+	}
 }
 
+// Start initializes and starts all configured forwarders.
 func (r *Runner) Start() error {
-
 	ctx := r.logger.WithContext(context.Background())
 	ctx, r.cancel = context.WithCancel(ctx)
 
 	r.startBanner(ctx)
 
 	for _, pf := range r.configuration.Forwards {
-		locator, err := buildLocator(pf.Resource, pf.Namespace, pf.Ports, r.client)
+		loc, err := locator.BuildLocator(pf.Resource, pf.Namespace, pf.Ports, r.client)
 		if err != nil {
-			return err			
+			return err
 		}
 
-		f, err := NewForwarder(locator, pf, r.client, r.transport, r.upgrader)
+		f, err := forwarder.New(loc, pf, r.client, r.transport, r.upgrader)
 		if err != nil {
-			return err			
+			return err
 		}
 
 		r.forwarders = append(r.forwarders, f)
 	}
 
 	for _, f := range r.forwarders {
-		r.wg.Go(func() {
+		f := f // capture in closure
+		r.wg.Add(1)
+		go func() {
+			defer r.wg.Done()
 			f.Start(ctx)
-		})
+		}()
 	}
 
 	return nil
 }
 
+// startBanner logs the application startup banner.
 func (r *Runner) startBanner(ctx context.Context) {
 	log := zerolog.Ctx(ctx)
 
@@ -101,9 +98,10 @@ func (r *Runner) startBanner(ctx context.Context) {
 	log.Info().Msg(` / _\ \ \ /\ / / //_/ _ \/ _ \ '_ \ / _ \ '__|`)
 	log.Info().Msg(`/ /    \ V  V / __ \  __/  __/ |_) |  __/ |   `)
 	log.Info().Msg(`\/      \_/\_/\/  \/\___|\___| .__/ \___|_|   `)
-	log.Info().Msg(`----------------------------------------------`)                                                                                            
+	log.Info().Msg(`----------------------------------------------`)
 }
 
+// Shutdown gracefully shuts down the runner and all forwarders.
 func (r *Runner) Shutdown() {
 	log := r.logger
 

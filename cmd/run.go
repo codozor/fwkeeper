@@ -2,14 +2,16 @@ package cmd
 
 import (
 	"os"
-		
+	"os/signal"
+	"syscall"
+
 	"github.com/spf13/cobra"
 
 	"github.com/samber/do/v2"
 
-	"github.com/codozor/fwkeeper/internal/config"
+	"github.com/codozor/fwkeeper/internal/app"
 	"github.com/codozor/fwkeeper/internal/bootstrap"
-	"github.com/codozor/fwkeeper/internal/service"
+	"github.com/codozor/fwkeeper/internal/config"
 )
 
 func cmdStart() *cobra.Command {
@@ -28,14 +30,14 @@ func cmdStart() *cobra.Command {
 			}
 
 			injector := do.New()
-			
+
 			// Provide configuration to the injector
 			do.ProvideValue(injector, configuration)
-			
+
 			// Bootstrap all dependencies
 			bootstrap.Package(injector)
 
-			runner, err := do.Invoke[*service.Runner](injector)
+			runner, err := do.Invoke[*app.Runner](injector)
 			if err != nil {
 				return err
 			}
@@ -44,7 +46,12 @@ func cmdStart() *cobra.Command {
 				return err
 			}
 
-			injector.ShutdownOnSignals(os.Interrupt, os.Kill)
+			// Setup signal handler for graceful shutdown
+			sigCh := make(chan os.Signal, 1)
+			signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+			<-sigCh
+
+			runner.Shutdown()
 
 			return nil
 		},
