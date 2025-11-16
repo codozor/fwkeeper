@@ -8,6 +8,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/transport/spdy"
 
@@ -23,6 +24,7 @@ type Forwarder struct {
 	client    kubernetes.Interface
 	transport http.RoundTripper
 	upgrader  spdy.Upgrader
+	restCfg   *rest.Config
 }
 
 // forwarderWriter adapts Kubernetes portforward output to structured logging.
@@ -52,13 +54,23 @@ func (w *forwarderWriter) Write(buf []byte) (n int, err error) {
 }
 
 // New creates a new forwarder for the given pod and configuration.
-func New(loc locator.Locator, configuration config.PortForwardConfiguration, client kubernetes.Interface, transport http.RoundTripper, upgrader spdy.Upgrader) (*Forwarder, error) {
+// Each forwarder gets its own SPDY transport and upgrader to avoid data races
+// when multiple forwarders run concurrently.
+func New(loc locator.Locator, configuration config.PortForwardConfiguration, client kubernetes.Interface, restCfg *rest.Config) (*Forwarder, error) {
+	// Create a dedicated transport AND upgrader for this forwarder.
+	// They must come from the same RoundTripperFor() call to be compatible.
+	transport, upgrader, err := spdy.RoundTripperFor(restCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SPDY transport: %w", err)
+	}
+
 	return &Forwarder{
 		locator:       loc,
 		configuration: configuration,
 		client:        client,
 		transport:     transport,
 		upgrader:      upgrader,
+		restCfg:       restCfg,
 	}, nil
 }
 

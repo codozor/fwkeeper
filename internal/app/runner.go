@@ -2,13 +2,11 @@ package app
 
 import (
 	"context"
-	"net/http"
 	"sync"
 
 	"github.com/rs/zerolog"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/transport/spdy"
 
 	"github.com/codozor/fwkeeper/internal/config"
 	"github.com/codozor/fwkeeper/internal/forwarder"
@@ -30,10 +28,6 @@ type Runner struct {
 	cancel context.CancelFunc
 
 	wg sync.WaitGroup
-
-	transport http.RoundTripper
-
-	upgrader spdy.Upgrader
 }
 
 // New creates a new Runner with all dependencies injected.
@@ -42,16 +36,12 @@ func New(
 	logger zerolog.Logger,
 	client kubernetes.Interface,
 	restCfg *rest.Config,
-	transport http.RoundTripper,
-	upgrader spdy.Upgrader,
 ) *Runner {
 	return &Runner{
 		configuration: configuration,
 		logger:        logger,
 		client:        client,
 		restCfg:       restCfg,
-		transport:     transport,
-		upgrader:      upgrader,
 	}
 }
 
@@ -68,7 +58,7 @@ func (r *Runner) Start() error {
 			return err
 		}
 
-		f, err := forwarder.New(loc, pf, r.client, r.transport, r.upgrader)
+		f, err := forwarder.New(loc, pf, r.client, r.restCfg)
 		if err != nil {
 			return err
 		}
