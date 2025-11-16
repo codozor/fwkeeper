@@ -9,9 +9,6 @@ import (
 
 	"github.com/rs/zerolog"
 
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/transport/spdy"
@@ -80,22 +77,8 @@ func (f *Forwarder) Start(ctx context.Context) {
 			break
 		}
 
-		podName, err := f.locator.locate(ctx)
+		podName, ports, err := f.locator.locate(ctx)
 		if err != nil {
-			log.Error().Err(err).Msgf("ERROR - Forwarder %s", f.forwarderInfo())
-			f.delayRetry(ctx)
-			continue
-		}
-
-		pod, err := f.client.CoreV1().Pods(f.configuration.Namespace).Get(ctx, podName, metav1.GetOptions{})
-		if err != nil {
-			log.Error().Err(err).Msgf("ERROR - Forwarder %s", f.forwarderInfo())
-			f.delayRetry(ctx)
-			continue
-		}
-
-		if pod.Status.Phase != corev1.PodRunning {
-			err := fmt.Errorf("pod not in running state")
 			log.Error().Err(err).Msgf("ERROR - Forwarder %s", f.forwarderInfo())
 			f.delayRetry(ctx)
 			continue
@@ -113,14 +96,15 @@ func (f *Forwarder) Start(ctx context.Context) {
     	dialer := spdy.NewDialer(f.upgrader, &http.Client{Transport: f.transport}, "POST", req.URL())
 
 		// Prepare channel for stop/ready
-    	stopCh := make(chan struct{}, 1)
+    	stopCh := make(chan struct{})
     	readyCh := make(chan struct{})
+		doneCh := make(chan struct{})
     	errCh := make(chan error)
 
 		outWriter := &forwarderWriter { logger: log, level: zerolog.InfoLevel }
 		errWriter := &forwarderWriter { logger: log, level: zerolog.ErrorLevel }
 
-		fw, err := portforward.New(dialer, f.configuration.Ports, stopCh, readyCh, outWriter, errWriter)
+		fw, err := portforward.New(dialer, ports, stopCh, readyCh, outWriter, errWriter)
 		if err != nil {
 			log.Error().Err(err).Msgf("ERROR - Forwarder %s", f.forwarderInfo())
 			f.delayRetry(ctx)
@@ -128,14 +112,18 @@ func (f *Forwarder) Start(ctx context.Context) {
 		}
 
 		// Stop the forwarder when context canceled
-		go func() {
-    		<-ctx.Done()
-    		close(stopCh)
-    	}()
+		go func(stop chan struct{}) {
+			select {
+			case <-ctx.Done():
+			case <-doneCh: 
+			}
+    		close(stop)
+    	}(stopCh)
 
 		// Start forwards
     	go func() {
         	errCh <- fw.ForwardPorts()
+			close(doneCh)
     	}()
 
 		select {

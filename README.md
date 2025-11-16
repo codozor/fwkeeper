@@ -425,8 +425,9 @@ Key dependencies:
 
 ## License
 
-[Add your license here]
+This project is under MIT License
 
 ## Support
 
-For issues, questions, or contributions, please visit the [repository](https://github.com/your-org/fwkeeper).
+For issues, questions, or contributions, please visit the [repository](https://github.com/codozor/fwkeeper).
+

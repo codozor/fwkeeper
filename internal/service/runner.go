@@ -70,7 +70,7 @@ func (r *Runner) Start() error {
 	r.startBanner(ctx)
 
 	for _, pf := range r.configuration.Forwards {
-		locator, err := buildLocator(pf.Resource, pf.Namespace, r.client)
+		locator, err := buildLocator(pf.Resource, pf.Namespace, pf.Ports, r.client)
 		if err != nil {
 			return err			
 		}
