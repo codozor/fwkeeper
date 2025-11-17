@@ -22,9 +22,9 @@ type Forwarder struct {
 	configuration config.PortForwardConfiguration
 
 	client    kubernetes.Interface
+	
 	transport http.RoundTripper
 	upgrader  spdy.Upgrader
-	restCfg   *rest.Config
 }
 
 // forwarderWriter adapts Kubernetes portforward output to structured logging.
@@ -68,9 +68,9 @@ func New(loc locator.Locator, configuration config.PortForwardConfiguration, cli
 		locator:       loc,
 		configuration: configuration,
 		client:        client,
+		
 		transport:     transport,
 		upgrader:      upgrader,
-		restCfg:       restCfg,
 	}, nil
 }
 

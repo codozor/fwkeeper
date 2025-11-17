@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/rs/zerolog"
@@ -52,20 +53,32 @@ func (r *Runner) Start() error {
 
 	r.startBanner(ctx)
 
+	log := zerolog.Ctx(ctx)
+
+	nErr := 0
+
 	for _, pf := range r.configuration.Forwards {
 		loc, err := locator.BuildLocator(pf.Resource, pf.Namespace, pf.Ports, r.client)
 		if err != nil {
-			return err
+			log.Err(err).Msgf("Cannot configurer forwarder %s", pf.Name)
+			nErr++
+			continue
 		}
 
 		f, err := forwarder.New(loc, pf, r.client, r.restCfg)
 		if err != nil {
-			return err
+			log.Err(err).Msgf("Cannot configurer forwarder %s", pf.Name)
+			nErr++
+			continue
 		}
 
 		r.forwarders = append(r.forwarders, f)
 	}
 
+	if nErr > 0 {
+		return fmt.Errorf("cannot start: %d configuration error(s) - see logs above", nErr)
+	}
+	
 	for _, f := range r.forwarders {
 		f := f // capture in closure
 		r.wg.Add(1)
