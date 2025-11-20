@@ -286,7 +286,7 @@ kubectl describe pod -n <namespace> <pod-name>
 
 ### "Connection refused" or "Connection reset"
 
-The pod restarted or the port-forward connection dropped. fwkeeper will automatically reconnect after 1 second. Check logs for details.
+The pod restarted or the port-forward connection dropped. fwkeeper will automatically reconnect with exponential backoff (starting at 100ms, up to 30s). Check logs for details.
 
 ### "Unable to connect to kubeconfig"
 
@@ -335,24 +335,26 @@ logs: {
 
 ```
 fwkeeper/
-├── cmd/                    # CLI command definitions
-│   ├── root.go            # Root command
-│   └── run.go             # Run command
+├── cmd/                      # CLI command definitions
+│   ├── root.go              # Root command
+│   └── run.go               # Run command
 ├── internal/
-│   ├── bootstrap/         # Dependency injection setup
-│   ├── config/            # Configuration loading and validation
-│   │   └── schema.cue     # CUE schema definition
-│   ├── logger/            # Logging setup
-│   └── service/           # Core forwarding logic
-│       ├── forward.go     # Port forwarder implementation
-│       ├── runner.go      # Main orchestrator
-│       ├── kubernetes.go  # Kubernetes client setup
-│       └── locator.go     # Pod locator
-├── main.go                # Application entry point
-├── go.mod                 # Go module definition
-├── go.sum                 # Dependency checksums
-├── fwkeeper.cue           # Default configuration
-└── README.md              # This file
+│   ├── app/                 # Application orchestration
+│   │   └── runner.go        # Main runner and lifecycle management
+│   ├── bootstrap/           # Dependency injection setup
+│   ├── config/              # Configuration loading and validation
+│   │   └── schema.cue       # CUE schema definition
+│   ├── forwarder/           # Port forwarding logic
+│   │   └── forwarder.go     # Individual pod port forwarder
+│   ├── kubernetes/          # Kubernetes client setup
+│   ├── locator/             # Pod discovery and location
+│   │   └── locator.go       # Pod/service locator implementations
+│   └── logger/              # Logging setup
+├── main.go                  # Application entry point
+├── go.mod                   # Go module definition
+├── go.sum                   # Dependency checksums
+├── fwkeeper.cue             # Default configuration
+└── README.md                # This file
 ```
 
 ### Building
@@ -417,9 +419,9 @@ Key dependencies:
 3. For each forward:
    - Locate the pod
    - Verify pod is running
-   - Establish SPDY connection
+   - Establish SPDY connection to pod
    - Forward ports
-   - Reconnect on failure (1 second retry delay)
+   - Reconnect on failure (exponential backoff: 100ms → 30s with jitter)
 4. Listen for interrupt signal (Ctrl+C)
 5. Gracefully shutdown all forwarders
 
