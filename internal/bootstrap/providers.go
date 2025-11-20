@@ -13,14 +13,21 @@ import (
 
 // Providers registers all service providers for dependency injection.
 var Providers = do.Package(
+	do.Lazy(restConfigInfoProvider),
 	do.Lazy(restConfigProvider),
 	do.Lazy(kubernetesProvider),
 	do.Lazy(runnerProvider),
 )
 
-// restConfigProvider creates a Kubernetes REST client configuration.
-func restConfigProvider(injector do.Injector) (*rest.Config, error) {
+// restConfigInfoProvider creates a Kubernetes REST client configuration with source info.
+func restConfigInfoProvider(injector do.Injector) (kubeinternal.RestConfigInfo, error) {
 	return kubeinternal.NewRestConfig()
+}
+
+// restConfigProvider extracts just the config from RestConfigInfo.
+func restConfigProvider(injector do.Injector) (*rest.Config, error) {
+	info := do.MustInvoke[kubeinternal.RestConfigInfo](injector)
+	return info.Config, nil
 }
 
 // kubernetesProvider creates a Kubernetes client.
@@ -36,6 +43,7 @@ func runnerProvider(injector do.Injector) (*app.Runner, error) {
 	logger := do.MustInvoke[zerolog.Logger](injector)
 	client := do.MustInvoke[kubernetes.Interface](injector)
 	restCfg := do.MustInvoke[*rest.Config](injector)
+	restConfigInfo := do.MustInvoke[kubeinternal.RestConfigInfo](injector)
 
-	return app.New(cfg, logger, client, restCfg), nil
+	return app.New(cfg, logger, client, restCfg, restConfigInfo.Source, restConfigInfo.Context), nil
 }

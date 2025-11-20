@@ -24,6 +24,9 @@ type Runner struct {
 
 	restCfg *rest.Config
 
+	kubeConfigSource string
+	kubeConfigContext string
+
 	forwarders []*forwarder.Forwarder
 
 	cancel context.CancelFunc
@@ -37,12 +40,16 @@ func New(
 	logger zerolog.Logger,
 	client kubernetes.Interface,
 	restCfg *rest.Config,
+	kubeConfigSource string,
+	kubeConfigContext string,
 ) *Runner {
 	return &Runner{
-		configuration: configuration,
-		logger:        logger,
-		client:        client,
-		restCfg:       restCfg,
+		configuration:     configuration,
+		logger:            logger,
+		client:            client,
+		restCfg:           restCfg,
+		kubeConfigSource:  kubeConfigSource,
+		kubeConfigContext: kubeConfigContext,
 	}
 }
 
@@ -54,6 +61,8 @@ func (r *Runner) Start() error {
 	r.startBanner(ctx)
 
 	log := zerolog.Ctx(ctx)
+
+	log.Info().Msgf("Kubernetes config source: %s (context: %s)", r.kubeConfigSource, r.kubeConfigContext)
 
 	nErr := 0
 
