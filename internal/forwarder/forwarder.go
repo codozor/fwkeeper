@@ -3,6 +3,8 @@ package forwarder
 import (
 	"context"
 	"fmt"
+	"math"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"time"
@@ -18,6 +20,24 @@ import (
 	"github.com/codozor/fwkeeper/internal/locator"
 )
 
+// RetryConfig defines exponential backoff retry strategy.
+type RetryConfig struct {
+	InitialDelay time.Duration
+	MaxDelay     time.Duration
+	Multiplier   float64
+	Jitter       bool
+}
+
+// DefaultRetryConfig returns sensible defaults for retry strategy.
+func DefaultRetryConfig() RetryConfig {
+	return RetryConfig{
+		InitialDelay: 100 * time.Millisecond,
+		MaxDelay:     30 * time.Second,
+		Multiplier:   1.5,
+		Jitter:       true,
+	}
+}
+
 // Forwarder manages port forwarding for a single pod.
 type Forwarder struct {
 	locator       locator.Locator
@@ -28,6 +48,9 @@ type Forwarder struct {
 
 	transport http.RoundTripper
 	upgrader  spdy.Upgrader
+
+	retryConfig RetryConfig
+	attempt     uint
 }
 
 // forwarderWriter adapts Kubernetes portforward output to structured logging.
@@ -71,10 +94,14 @@ func New(loc locator.Locator, configuration config.PortForwardConfiguration, cli
 		locator:       loc,
 		configuration: configuration,
 		client:        client,
+
 		restConfig:    restCfg,
 
 		transport:     transport,
 		upgrader:      upgrader,
+
+		retryConfig: DefaultRetryConfig(),
+		attempt:     0,
 	}, nil
 }
 
@@ -99,6 +126,7 @@ func (f *Forwarder) Start(ctx context.Context) {
 		if err != nil {
 			log.Error().Err(err).Msgf("ERROR - Forwarder %s", f.forwarderInfo())
 			f.delayRetry(ctx)
+			f.attempt++
 			continue
 		}
 
@@ -125,6 +153,7 @@ func (f *Forwarder) Start(ctx context.Context) {
 		if err != nil {
 			log.Error().Err(err).Msgf("ERROR - Forwarder %s", f.forwarderInfo())
 			f.delayRetry(ctx)
+			f.attempt++
 			continue
 		}
 
@@ -146,26 +175,49 @@ func (f *Forwarder) Start(ctx context.Context) {
 		select {
 		case <-readyCh:
 			log.Info().Msgf("READY - Forwarder %s", f.forwarderInfo())
+			f.attempt = 0
 		case err = <-errCh:
 			log.Error().Err(err).Msgf("ERROR - Forwarder %s", f.forwarderInfo())
 			f.delayRetry(ctx)
+			f.attempt++
 			continue
 		}
 
 		err = <-errCh
 
 		log.Error().Err(err).Msgf("ERROR - Forwarder %s", f.forwarderInfo())
+		f.delayRetry(ctx)
+		f.attempt++
 	}
 
 	log.Info().Msgf("STOP Forwarder %s", f.forwarderInfo())
 }
 
-// delayRetry pauses before retrying, respecting context cancellation.
+// calculateBackoff computes exponential backoff with optional jitter.
+// Formula: initialDelay * (multiplier ^ attempt), capped at maxDelay
+func (f *Forwarder) calculateBackoff() time.Duration {
+	delay := f.retryConfig.InitialDelay * time.Duration(math.Pow(f.retryConfig.Multiplier, float64(f.attempt)))
+
+	if delay > f.retryConfig.MaxDelay {
+		delay = f.retryConfig.MaxDelay
+	}
+
+	if f.retryConfig.Jitter {
+		// Add jitter: ±10% randomization
+		jitterAmount := delay / 10
+		jitterRange := rand.Int63n(int64(2 * jitterAmount))
+		delay = delay - jitterAmount + time.Duration(jitterRange)
+	}
+
+	return delay
+}
+
+// delayRetry pauses before retrying with exponential backoff, respecting context cancellation.
 func (f *Forwarder) delayRetry(ctx context.Context) {
+	delay := f.calculateBackoff()
 	select {
-	case <-time.After(1 * time.Second):
+	case <-time.After(delay):
 	case <-ctx.Done():
-		break
 	}
 }
 
