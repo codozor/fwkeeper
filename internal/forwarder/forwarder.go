@@ -6,9 +6,11 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/rs/zerolog"
+	"k8s.io/apimachinery/pkg/util/httpstream"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/portforward"
@@ -41,7 +43,8 @@ type Forwarder struct {
 	locator       locator.Locator
 	configuration config.PortForwardConfiguration
 
-	client    kubernetes.Interface
+	client     kubernetes.Interface
+	restConfig *rest.Config
 
 	transport http.RoundTripper
 	upgrader  spdy.Upgrader
@@ -92,6 +95,8 @@ func New(loc locator.Locator, configuration config.PortForwardConfiguration, cli
 		configuration: configuration,
 		client:        client,
 
+		restConfig:    restCfg,
+
 		transport:     transport,
 		upgrader:      upgrader,
 
@@ -133,7 +138,7 @@ func (f *Forwarder) Start(ctx context.Context) {
 			SubResource("portforward")
 
 		// Create the dialer
-		dialer := spdy.NewDialer(f.upgrader, &http.Client{Transport: f.transport}, "POST", req.URL())
+		dialer := f.createDialer(req.URL(), log)
 
 		// Prepare channel for stop/ready
 		stopCh := make(chan struct{})
@@ -214,4 +219,29 @@ func (f *Forwarder) delayRetry(ctx context.Context) {
 	case <-time.After(delay):
 	case <-ctx.Done():
 	}
+}
+
+// createDialer creates a port-forward dialer with WebSocket primary and SPDY fallback.
+// This helps resolve connection stability issues on some Kubernetes clusters.
+func (f *Forwarder) createDialer(forwardURL *url.URL, log *zerolog.Logger) httpstream.Dialer {
+	// Create the standard SPDY dialer as fallback
+	spdyDialer := spdy.NewDialer(f.upgrader, &http.Client{Transport: f.transport}, "POST", forwardURL)
+
+	// Try to create the WebSocket tunneling dialer
+	tunnelingDialer, err := portforward.NewSPDYOverWebsocketDialer(forwardURL, f.restConfig)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to create WebSocket dialer, using SPDY only")
+		return spdyDialer
+	}
+
+	log.Debug().Msg("WebSocket port-forward enabled")
+
+	// Use WebSocket as primary with SPDY as fallback
+	return portforward.NewFallbackDialer(
+		tunnelingDialer,
+		spdyDialer,
+		func(err error) bool {
+			return httpstream.IsUpgradeFailure(err) || httpstream.IsHTTPSProxyError(err)
+		},
+	)
 }
