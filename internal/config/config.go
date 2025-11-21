@@ -80,19 +80,28 @@ func loadConfiguration(finename string) ([]byte, error) {
 }
 
 func validateConfiguration(cfg Configuration) (Configuration, error) {
+	// Track local ports to detect conflicts
+	localPorts := make(map[int]string) // port -> forward name
+
 	for _, pf := range cfg.Forwards {
 		if pf.Name == "" {
 			return cfg, fmt.Errorf("each port forward must have a name")
 		}
 
 		for _, port := range pf.Ports {
-			parts := strings.SplitN(port, ":", 2) 
-			
+			parts := strings.SplitN(port, ":", 2)
+
 			if len(parts) >= 1 {
 				p1, err := strconv.Atoi(parts[0])
 				if err != nil || p1 < 1 || p1 > 65535 {
 					return cfg, fmt.Errorf("invalid port specification in port forward %s : %s", pf.Name, port)
-				}					
+				}
+
+				// Check for port conflicts
+				if existingForward, exists := localPorts[p1]; exists {
+					return cfg, fmt.Errorf("port conflict: local port %d used by both '%s' and '%s'", p1, existingForward, pf.Name)
+				}
+				localPorts[p1] = pf.Name
 			}
 			if len(parts) == 2 {
 				p2, err := strconv.Atoi(parts[1])
