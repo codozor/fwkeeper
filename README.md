@@ -15,19 +15,49 @@ Port forwarding made easy. A Kubernetes port forwarding tool that automatically 
 
 ### Prerequisites
 
-- Go 1.25.1 or later
-- Access to a Kubernetes cluster (local kubeconfig or in-cluster)
-- kubectl configured (for cluster access)
+- **Go 1.25.1 or later** - [Download Go](https://golang.org/dl/)
+- **Access to a Kubernetes cluster** (local kubeconfig or in-cluster)
 
-### Build from Source
+Verify Go is installed:
 
 ```bash
-git clone <repository-url>
-cd fwkeeper
-go build -o fwkeeper ./
+go version
 ```
 
-The binary will be created as `fwkeeper` in the current directory.
+### Install
+
+Install fwkeeper directly:
+
+```bash
+go install github.com/codozor/fwkeeper@latest
+```
+
+This installs the binary to `$GOPATH/bin` (typically `~/go/bin`), which should already be in your PATH.
+
+Verify installation:
+
+```bash
+fwkeeper --version
+fwkeeper --help
+```
+
+If `fwkeeper` is not found, ensure `$GOPATH/bin` is in your PATH:
+
+```bash
+# Add to ~/.bashrc, ~/.zshrc, or ~/.bash_profile
+export PATH="$HOME/go/bin:$PATH"
+```
+
+### Build from Source (Development)
+
+For development or building locally:
+
+```bash
+git clone https://github.com/codozor/fwkeeper.git
+cd fwkeeper
+go build -o fwkeeper ./
+./fwkeeper run -c fwkeeper.cue
+```
 
 ## Quick Start
 
