@@ -141,11 +141,20 @@ forwards: [
     name: "service-name"              # Unique identifier for this forward
     ports: ["8080", "9000:3000"]      # Local:remote port mappings
     namespace: "default"              # Kubernetes namespace
-    resource: "pod-name"              # Pod name to forward to
+    resource: "pod-name"              # Pod, Service, Deployment, StatefulSet, or DaemonSet
   },
   # ... more forwards
 ]
 ```
+
+**Resource Reference Syntax:**
+- `"pod-name"` - Direct pod reference
+- `"svc/service-name"` or `"service/service-name"` - Kubernetes Service
+- `"dep/deployment-name"` or `"deployment/deployment-name"` - Kubernetes Deployment
+- `"sts/statefulset-name"` or `"statefulset/statefulset-name"` - Kubernetes StatefulSet
+- `"ds/daemonset-name"` or `"daemonset/daemonset-name"` - Kubernetes DaemonSet
+
+When using a Service, Deployment, StatefulSet, or DaemonSet, fwkeeper automatically finds and connects to the first running pod that matches the resource's selector.
 
 **Port Mapping Syntax:**
 - `"8080"` - Forward local port 8080 to pod port 8080
@@ -154,7 +163,8 @@ forwards: [
 **Validation Rules:**
 - Port numbers must be between 1 and 65535
 - Each forward must have a unique name
-- Namespace and resource (pod name) must be specified
+- Namespace and resource must be specified
+- Local ports must be unique across all forwards
 
 ### Environment Variables
 
@@ -272,6 +282,40 @@ forwards: [
   }
 ]
 ```
+
+### Example 4: Using Deployments and StatefulSets
+
+Forward to pods managed by Deployments, StatefulSets, or DaemonSets:
+
+```cue
+logs: {
+  level: "info"
+  pretty: true
+}
+
+forwards: [
+  {
+    name: "api-deployment"
+    ports: ["8080:8080"]
+    namespace: "production"
+    resource: "dep/api-server"        # Deployment: automatically finds a running pod
+  },
+  {
+    name: "postgres-statefulset"
+    ports: ["5432:5432"]
+    namespace: "databases"
+    resource: "sts/postgres-primary"  # StatefulSet: automatically finds a running pod
+  },
+  {
+    name: "monitoring-daemonset"
+    ports: ["9090:9090"]
+    namespace: "monitoring"
+    resource: "ds/prometheus"         # DaemonSet: automatically finds a running pod
+  }
+]
+```
+
+The resource finder automatically locates the first running pod managed by the specified Deployment, StatefulSet, or DaemonSet. This is useful when you have multiple replicas and want to connect to any available pod.
 
 ## Logging
 
