@@ -440,6 +440,60 @@ logs: {
 }
 ```
 
+## Testing
+
+### Running Tests
+
+Run all tests in the project:
+
+```bash
+go test ./...
+```
+
+Run tests with verbose output:
+
+```bash
+go test -v ./...
+```
+
+Run specific test package:
+
+```bash
+go test -v ./internal/config
+```
+
+Run specific test:
+
+```bash
+go test -v -run TestPortValidation ./internal/config
+```
+
+### Test Coverage
+
+Run tests with coverage:
+
+```bash
+go test -cover ./...
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
+```
+
+### Test Status
+
+**Phase 1 (Completed):**
+- ✅ Config loading and parsing (valid config, parsing errors)
+- ✅ Port validation (range: 1-65535, invalid ports, port conflicts)
+- ✅ Port conflict detection (duplicate local ports across forwards)
+
+**Phase 2 (Planned):**
+- Locator implementations (Pod, Service, Deployment, StatefulSet, DaemonSet)
+- Forward name uniqueness validation
+- Configuration hot-reload
+
+**Phase 3 (Planned):**
+- Runner lifecycle (startup, shutdown, error handling)
+- Forwarder reconnection behavior
+
 ## Development
 
 ### Project Structure

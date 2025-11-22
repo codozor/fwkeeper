@@ -11,6 +11,9 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/rs/zerolog"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
@@ -126,7 +129,8 @@ func (r *Runner) startForwarder(ctx context.Context, pf config.PortForwardConfig
 		return nil
 	}
 
-	loc, err := locator.BuildLocator(pf.Resource, pf.Namespace, pf.Ports, r.client)
+	adapter := &kubernetesClientAdapter{client: r.client}
+	loc, err := locator.BuildLocator(pf.Resource, pf.Namespace, pf.Ports, adapter)
 	if err != nil {
 		return fmt.Errorf("failed to build locator: %w", err)
 	}
@@ -366,4 +370,100 @@ func (r *Runner) Shutdown() {
 	log.Info().Msg(`------------------------------------------------------------------`)
 	log.Info().Msg(`fwkeeper Stopped`)
 	log.Info().Msg(`------------------------------------------------------------------`)
+}
+
+// kubernetesClientAdapter adapts kubernetes.Interface to locator.KubernetesClient
+type kubernetesClientAdapter struct {
+	client kubernetes.Interface
+}
+
+func (a *kubernetesClientAdapter) CoreV1() locator.CoreV1Client {
+	return &coreV1Adapter{client: a.client}
+}
+
+func (a *kubernetesClientAdapter) AppsV1() locator.AppsV1Client {
+	return &appsV1Adapter{client: a.client}
+}
+
+type coreV1Adapter struct {
+	client kubernetes.Interface
+}
+
+func (a *coreV1Adapter) Pods(namespace string) locator.PodClient {
+	return &podAdapter{pods: a.client.CoreV1().Pods(namespace)}
+}
+
+func (a *coreV1Adapter) Services(namespace string) locator.ServiceClient {
+	return &serviceAdapter{services: a.client.CoreV1().Services(namespace)}
+}
+
+type podAdapter struct {
+	pods interface {
+		Get(context.Context, string, metav1.GetOptions) (*corev1.Pod, error)
+		List(context.Context, metav1.ListOptions) (*corev1.PodList, error)
+	}
+}
+
+func (a *podAdapter) Get(ctx context.Context, name string, opts metav1.GetOptions) (*corev1.Pod, error) {
+	return a.pods.Get(ctx, name, opts)
+}
+
+func (a *podAdapter) List(ctx context.Context, opts metav1.ListOptions) (*corev1.PodList, error) {
+	return a.pods.List(ctx, opts)
+}
+
+type serviceAdapter struct {
+	services interface {
+		Get(context.Context, string, metav1.GetOptions) (*corev1.Service, error)
+	}
+}
+
+func (a *serviceAdapter) Get(ctx context.Context, name string, opts metav1.GetOptions) (*corev1.Service, error) {
+	return a.services.Get(ctx, name, opts)
+}
+
+type appsV1Adapter struct {
+	client kubernetes.Interface
+}
+
+func (a *appsV1Adapter) Deployments(namespace string) locator.ResourceClient {
+	return &deploymentAdapter{deployments: a.client.AppsV1().Deployments(namespace)}
+}
+
+func (a *appsV1Adapter) StatefulSets(namespace string) locator.ResourceClient {
+	return &statefulSetAdapter{statefulsets: a.client.AppsV1().StatefulSets(namespace)}
+}
+
+func (a *appsV1Adapter) DaemonSets(namespace string) locator.ResourceClient {
+	return &daemonSetAdapter{daemonsets: a.client.AppsV1().DaemonSets(namespace)}
+}
+
+type deploymentAdapter struct {
+	deployments interface {
+		Get(context.Context, string, metav1.GetOptions) (*appsv1.Deployment, error)
+	}
+}
+
+func (a *deploymentAdapter) Get(ctx context.Context, name string, opts metav1.GetOptions) (interface{}, error) {
+	return a.deployments.Get(ctx, name, opts)
+}
+
+type statefulSetAdapter struct {
+	statefulsets interface {
+		Get(context.Context, string, metav1.GetOptions) (*appsv1.StatefulSet, error)
+	}
+}
+
+func (a *statefulSetAdapter) Get(ctx context.Context, name string, opts metav1.GetOptions) (interface{}, error) {
+	return a.statefulsets.Get(ctx, name, opts)
+}
+
+type daemonSetAdapter struct {
+	daemonsets interface {
+		Get(context.Context, string, metav1.GetOptions) (*appsv1.DaemonSet, error)
+	}
+}
+
+func (a *daemonSetAdapter) Get(ctx context.Context, name string, opts metav1.GetOptions) (interface{}, error) {
+	return a.daemonsets.Get(ctx, name, opts)
 }

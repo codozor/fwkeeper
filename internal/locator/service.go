@@ -11,7 +11,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/client-go/kubernetes"
 )
 
 // ServiceLocator locates a pod backing a service and maps service ports to pod ports.
@@ -19,11 +18,11 @@ type ServiceLocator struct {
 	svcName   string
 	namespace string
 	ports     []string
-	client    kubernetes.Interface
+	client    KubernetesClient
 }
 
 // NewServiceLocator creates a new service locator for the specified service name.
-func NewServiceLocator(svcName string, namespace string, ports []string, client kubernetes.Interface) (*ServiceLocator, error) {
+func NewServiceLocator(svcName string, namespace string, ports []string, client KubernetesClient) (*ServiceLocator, error) {
 	return &ServiceLocator{
 		svcName:   svcName,
 		namespace: namespace,
