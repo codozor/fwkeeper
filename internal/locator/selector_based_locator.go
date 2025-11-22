@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/kubernetes"
 )
 
 // SelectorBasedLocator locates a pod backing a Kubernetes resource with a selector
@@ -17,11 +17,11 @@ type SelectorBasedLocator struct {
 	resourceName string
 	namespace    string
 	ports        []string
-	client       kubernetes.Interface
+	client       KubernetesClient
 }
 
 // NewSelectorBasedLocator creates a locator for any resource type with a selector.
-func NewSelectorBasedLocator(resourceType string, resourceName string, namespace string, ports []string, client kubernetes.Interface) (*SelectorBasedLocator, error) {
+func NewSelectorBasedLocator(resourceType string, resourceName string, namespace string, ports []string, client KubernetesClient) (*SelectorBasedLocator, error) {
 	return &SelectorBasedLocator{
 		resourceType: resourceType,
 		resourceName: resourceName,
@@ -73,9 +73,14 @@ func (l *SelectorBasedLocator) getSelector(ctx context.Context) (labels.Selector
 
 // getDeploymentSelector retrieves the selector from a Deployment.
 func (l *SelectorBasedLocator) getDeploymentSelector(ctx context.Context) (labels.Selector, error) {
-	deployment, err := l.client.AppsV1().Deployments(l.namespace).Get(ctx, l.resourceName, metav1.GetOptions{})
+	deploymentObj, err := l.client.AppsV1().Deployments(l.namespace).Get(ctx, l.resourceName, metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get deployment %s: %w", l.resourceName, err)
+	}
+
+	deployment, ok := deploymentObj.(*appsv1.Deployment)
+	if !ok {
+		return nil, fmt.Errorf("unexpected type for deployment: %T", deploymentObj)
 	}
 
 	if deployment.Spec.Selector == nil {
@@ -87,9 +92,14 @@ func (l *SelectorBasedLocator) getDeploymentSelector(ctx context.Context) (label
 
 // getStatefulSetSelector retrieves the selector from a StatefulSet.
 func (l *SelectorBasedLocator) getStatefulSetSelector(ctx context.Context) (labels.Selector, error) {
-	statefulSet, err := l.client.AppsV1().StatefulSets(l.namespace).Get(ctx, l.resourceName, metav1.GetOptions{})
+	statefulSetObj, err := l.client.AppsV1().StatefulSets(l.namespace).Get(ctx, l.resourceName, metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get statefulset %s: %w", l.resourceName, err)
+	}
+
+	statefulSet, ok := statefulSetObj.(*appsv1.StatefulSet)
+	if !ok {
+		return nil, fmt.Errorf("unexpected type for statefulset: %T", statefulSetObj)
 	}
 
 	if statefulSet.Spec.Selector == nil {
@@ -101,9 +111,14 @@ func (l *SelectorBasedLocator) getStatefulSetSelector(ctx context.Context) (labe
 
 // getDaemonSetSelector retrieves the selector from a DaemonSet.
 func (l *SelectorBasedLocator) getDaemonSetSelector(ctx context.Context) (labels.Selector, error) {
-	daemonSet, err := l.client.AppsV1().DaemonSets(l.namespace).Get(ctx, l.resourceName, metav1.GetOptions{})
+	daemonSetObj, err := l.client.AppsV1().DaemonSets(l.namespace).Get(ctx, l.resourceName, metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get daemonset %s: %w", l.resourceName, err)
+	}
+
+	daemonSet, ok := daemonSetObj.(*appsv1.DaemonSet)
+	if !ok {
+		return nil, fmt.Errorf("unexpected type for daemonset: %T", daemonSetObj)
 	}
 
 	if daemonSet.Spec.Selector == nil {
