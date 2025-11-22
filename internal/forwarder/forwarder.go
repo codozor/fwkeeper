@@ -245,3 +245,8 @@ func (f *Forwarder) createDialer(forwardURL *url.URL, log *zerolog.Logger) https
 		},
 	)
 }
+
+// Config returns the port forward configuration for this forwarder.
+func (f *Forwarder) Config() config.PortForwardConfiguration {
+	return f.configuration
+}

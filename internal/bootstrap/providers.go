@@ -40,10 +40,11 @@ func kubernetesProvider(injector do.Injector) (kubernetes.Interface, error) {
 // Note: SPDY transport and upgrader are created per-forwarder to avoid data races.
 func runnerProvider(injector do.Injector) (*app.Runner, error) {
 	cfg := do.MustInvoke[config.Configuration](injector)
+	configPath := do.MustInvoke[string](injector)
 	logger := do.MustInvoke[zerolog.Logger](injector)
 	client := do.MustInvoke[kubernetes.Interface](injector)
 	restCfg := do.MustInvoke[*rest.Config](injector)
 	restConfigInfo := do.MustInvoke[kubeinternal.RestConfigInfo](injector)
 
-	return app.New(cfg, logger, client, restCfg, restConfigInfo.Source, restConfigInfo.Context), nil
+	return app.New(cfg, configPath, logger, client, restCfg, restConfigInfo.Source, restConfigInfo.Context), nil
 }

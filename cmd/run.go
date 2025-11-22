@@ -31,8 +31,9 @@ func cmdStart() *cobra.Command {
 
 			injector := do.New()
 
-			// Provide configuration to the injector
+			// Provide configuration and config path to the injector
 			do.ProvideValue(injector, configuration)
+			do.ProvideValue(injector, cfgFilename)
 
 			// Bootstrap all dependencies
 			bootstrap.Package(injector)
