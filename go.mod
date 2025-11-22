@@ -2,14 +2,19 @@ module github.com/codozor/fwkeeper
 
 go 1.25.1
 
-require github.com/spf13/cobra v1.10.1
+require (
+	github.com/fsnotify/fsnotify v1.9.0
+	github.com/spf13/cobra v1.10.1
+	github.com/stretchr/testify v1.11.1
+	k8s.io/api v0.34.1
+	k8s.io/apimachinery v0.34.1
+)
 
 require (
 	github.com/cockroachdb/apd/v3 v3.2.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.12.2 // indirect
 	github.com/emicklei/proto v1.14.2 // indirect
-	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect
@@ -32,6 +37,7 @@ require (
 	github.com/mxk/go-flowrate v0.0.0-20140419014527-cca7078d478f // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/protocolbuffers/txtpbfmt v0.0.0-20251016062345-16587c79cd91 // indirect
 	github.com/samber/go-type-to-string v1.8.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
@@ -47,8 +53,6 @@ require (
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/api v0.34.1 // indirect
-	k8s.io/apimachinery v0.34.1 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20250710124328-f3f2b991d03b // indirect
 	k8s.io/utils v0.0.0-20250604170112-4c0f3b243397 // indirect
