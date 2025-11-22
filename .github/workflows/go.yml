@@ -26,3 +26,11 @@ jobs:
 
     - name: Test
       run: go test -v ./...
+  
+    - name: Generate Coverage Profile
+      run: go test -v -coverpkg=./... -coverprofile=profile.cov ./...
+
+    - name: Send coverage to Coveralls
+      uses: shogo82148/actions-goveralls@v1
+      with:
+        path-to-profile: profile.cov
