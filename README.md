@@ -1,5 +1,7 @@
 # fwkeeper
 
+[![Go](https://github.com/codozor/fwkeeper/actions/workflows/go.yml/badge.svg)](https://github.com/codozor/fwkeeper/actions/workflows/go.yml)
+
 Port forwarding made easy. A Kubernetes port forwarding tool that automatically maintains persistent port forwards to pods with automatic reconnection and failure recovery.
 
 ## Features
