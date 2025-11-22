@@ -203,6 +203,40 @@ Press `Ctrl+C` to gracefully stop fwkeeper. It will:
 2. Close connections
 3. Print shutdown message
 
+### Configuration Hot-Reload
+
+fwkeeper automatically detects changes to your configuration file and reloads without interrupting active port forwards (when possible).
+
+**Automatic Reload:**
+- fwkeeper watches your config file for changes
+- When the file is saved, the configuration is automatically reloaded
+- New forwards are started, removed forwards are stopped, modified forwards are restarted
+
+**Manual Reload:**
+Send a SIGHUP signal to trigger manual reload:
+
+```bash
+# In another terminal, while fwkeeper is running
+kill -HUP <pid>
+
+# Or using pkill
+pkill -HUP fwkeeper
+```
+
+**Config Reload Behavior:**
+- **Invalid config** → Current configuration continues, error logged, reload skipped
+- **New forwards** → Started automatically
+- **Removed forwards** → Stopped gracefully
+- **Modified forwards** → Restarted with new configuration
+- **Unchanged forwards** → Continue running without interruption
+
+**Example:**
+1. Start fwkeeper: `./fwkeeper run -c fwkeeper.cue`
+2. Edit `fwkeeper.cue` (add, remove, or modify forwards)
+3. Save the file
+4. fwkeeper detects the change and updates automatically
+5. View the logs to see what changed
+
 ## Examples
 
 ### Example 1: Database Access
