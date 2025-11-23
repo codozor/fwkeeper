@@ -8,6 +8,7 @@ import (
 
 	"github.com/samber/lo"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -36,7 +37,17 @@ func NewServiceLocator(svcName string, namespace string, ports []string, client 
 func (l *ServiceLocator) Locate(ctx context.Context) (string, []string, error) {
 	svc, err := l.client.CoreV1().Services(l.namespace).Get(ctx, l.svcName, metav1.GetOptions{})
 	if err != nil {
-		return "", []string{}, fmt.Errorf("failed to get service %s: %w", l.svcName, err)
+		// Classify API errors
+		if apierrors.IsNotFound(err) {
+			return "", []string{}, NewResourceNotFoundError("service", l.svcName, err)
+		}
+		if apierrors.IsTimeout(err) || apierrors.IsServerTimeout(err) {
+			return "", []string{}, NewAPITransientError(fmt.Sprintf("API timeout getting service %s", l.svcName), err)
+		}
+		if apierrors.IsForbidden(err) || apierrors.IsUnauthorized(err) {
+			return "", []string{}, NewPermissionDeniedError("get", fmt.Sprintf("service %s", l.svcName), err)
+		}
+		return "", []string{}, NewAPITransientError(fmt.Sprintf("failed to get service %s", l.svcName), err)
 	}
 
 	labelSelector := labels.Set(svc.Spec.Selector).AsSelector()
@@ -45,7 +56,14 @@ func (l *ServiceLocator) Locate(ctx context.Context) (string, []string, error) {
 		LabelSelector: labelSelector.String(),
 	})
 	if err != nil {
-		return "", []string{}, fmt.Errorf("failed to list pods for service %s: %w", l.svcName, err)
+		// Classify API errors
+		if apierrors.IsTimeout(err) || apierrors.IsServerTimeout(err) {
+			return "", []string{}, NewAPITransientError(fmt.Sprintf("API timeout listing pods for service %s", l.svcName), err)
+		}
+		if apierrors.IsForbidden(err) || apierrors.IsUnauthorized(err) {
+			return "", []string{}, NewPermissionDeniedError("list", fmt.Sprintf("pods for service %s", l.svcName), err)
+		}
+		return "", []string{}, NewAPITransientError(fmt.Sprintf("failed to list pods for service %s", l.svcName), err)
 	}
 
 	for _, p := range pods.Items {
@@ -59,7 +77,12 @@ func (l *ServiceLocator) Locate(ctx context.Context) (string, []string, error) {
 		}
 	}
 
-	return "", []string{}, fmt.Errorf("no running pod found for service %s", l.svcName)
+	// No running pods found for service
+	return "", []string{}, &LocateError{
+		Type:    ErrorTypeNoPodAvailable,
+		Message: fmt.Sprintf("no running pod found for service %s", l.svcName),
+		Err:     nil,
+	}
 }
 
 // mapPorts translates service ports to pod container ports.
@@ -72,14 +95,14 @@ func (l *ServiceLocator) mapPorts(svc *corev1.Service, pod *corev1.Pod) ([]strin
 
 		srcPort, err := strconv.Atoi(parts[0])
 		if err != nil {
-			return []string{}, fmt.Errorf("invalid local port %s: %w", parts[0], err)
+			return []string{}, NewConfigInvalidError(fmt.Sprintf("invalid local port %s", parts[0]), err)
 		}
 
 		dstPort := srcPort
 		if len(parts) > 1 {
 			dstPort, err = strconv.Atoi(parts[1])
 			if err != nil {
-				return []string{}, fmt.Errorf("invalid remote port %s: %w", parts[1], err)
+				return []string{}, NewConfigInvalidError(fmt.Sprintf("invalid remote port %s", parts[1]), err)
 			}
 		}
 
@@ -87,7 +110,7 @@ func (l *ServiceLocator) mapPorts(svc *corev1.Service, pod *corev1.Pod) ([]strin
 			return p.Port == int32(dstPort)
 		})
 		if !ok {
-			return []string{}, fmt.Errorf("service %s does not expose port %d", svc.Name, dstPort)
+			return []string{}, NewConfigInvalidError(fmt.Sprintf("service %s does not expose port %d", svc.Name, dstPort), nil)
 		}
 
 		if sp.TargetPort.Type == intstr.Int {
@@ -99,7 +122,7 @@ func (l *ServiceLocator) mapPorts(svc *corev1.Service, pod *corev1.Pod) ([]strin
 				return sp.TargetPort.StrVal == p.Name
 			})
 			if !ok {
-				return []string{}, fmt.Errorf("pod %s does not have named port %s", pod.Name, sp.TargetPort.StrVal)
+				return []string{}, NewConfigInvalidError(fmt.Sprintf("pod %s does not have named port %s", pod.Name, sp.TargetPort.StrVal), nil)
 			}
 
 			dstPort = int(pp.ContainerPort)
