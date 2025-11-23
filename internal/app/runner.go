@@ -283,7 +283,10 @@ func (r *Runner) reloadConfig(ctx context.Context) {
 	// Load new configuration
 	newConfig, err := config.ReadConfiguration(r.configPath)
 	if err != nil {
-		log.Err(err).Msg("Failed to reload config, continuing with current configuration")
+		log.Error().
+			Err(err).
+			Str("config_file", r.configPath).
+			Msg("Configuration reload failed - keeping previous configuration. Fix the configuration file and try again")
 		return
 	}
 
