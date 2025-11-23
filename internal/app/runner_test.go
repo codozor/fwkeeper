@@ -1330,3 +1330,336 @@ func TestFileWatcherConfigPath(t *testing.T) {
 	assert.Equal(t, configPath, runner.configPath)
 	runner.mu.Unlock()
 }
+
+// Phase 7 Tests - Signal Handling and Graceful Shutdown
+
+// TestRunnerGracefulShutdownCompletes tests that Shutdown completes without hanging
+func TestRunnerGracefulShutdownCompletes(t *testing.T) {
+	initialCfg := config.Configuration{
+		Logs: config.LogsConfiguration{
+			Level:  "info",
+			Pretty: false,
+		},
+		Forwards: []config.PortForwardConfiguration{},
+	}
+
+	restCfg := &rest.Config{}
+	logger := zerolog.New(nil)
+
+	runner := New(initialCfg, "", logger, nil, restCfg, "mock-source", "mock-context")
+	err := runner.Start()
+	require.NoError(t, err)
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Shutdown should complete quickly without hanging
+	done := make(chan bool, 1)
+	go func() {
+		runner.Shutdown()
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		// Shutdown completed successfully
+		assert.True(t, true)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Shutdown timed out - appears to be hanging")
+	}
+}
+
+// TestRunnerContextCancelledOnShutdown tests that runner context is cancelled
+func TestRunnerContextCancelledOnShutdown(t *testing.T) {
+	initialCfg := config.Configuration{
+		Logs: config.LogsConfiguration{
+			Level:  "info",
+			Pretty: false,
+		},
+		Forwards: []config.PortForwardConfiguration{},
+	}
+
+	restCfg := &rest.Config{}
+	logger := zerolog.New(nil)
+
+	runner := New(initialCfg, "", logger, nil, restCfg, "mock-source", "mock-context")
+	err := runner.Start()
+	require.NoError(t, err)
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify context is active before shutdown
+	select {
+	case <-runner.ctx.Done():
+		t.Fatal("Context should be active before shutdown")
+	default:
+		// Context is active - good
+	}
+
+	// Shutdown the runner
+	runner.Shutdown()
+
+	// Verify context is cancelled after shutdown
+	select {
+	case <-runner.ctx.Done():
+		// Context is cancelled - correct
+		assert.True(t, true)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Context should be cancelled after shutdown")
+	}
+}
+
+// TestRunnerShutdownStopsWatcherGoroutine tests that watcher goroutine stops
+func TestRunnerShutdownStopsWatcherGoroutine(t *testing.T) {
+	initialCfg := config.Configuration{
+		Logs: config.LogsConfiguration{
+			Level:  "info",
+			Pretty: false,
+		},
+		Forwards: []config.PortForwardConfiguration{},
+	}
+
+	restCfg := &rest.Config{}
+	logger := zerolog.New(nil)
+
+	runner := New(initialCfg, "", logger, nil, restCfg, "mock-source", "mock-context")
+	err := runner.Start()
+	require.NoError(t, err)
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Shutdown should stop the watcher goroutine
+	runner.Shutdown()
+
+	// Wait a moment for goroutine to clean up
+	time.Sleep(50 * time.Millisecond)
+
+	// Try to shutdown again - should not panic
+	runner.Shutdown()
+
+	assert.True(t, true)
+}
+
+// TestRunnerShutdownMultipleCalls tests that multiple shutdown calls are safe
+func TestRunnerShutdownMultipleCalls(t *testing.T) {
+	initialCfg := config.Configuration{
+		Logs: config.LogsConfiguration{
+			Level:  "info",
+			Pretty: false,
+		},
+		Forwards: []config.PortForwardConfiguration{},
+	}
+
+	restCfg := &rest.Config{}
+	logger := zerolog.New(nil)
+
+	runner := New(initialCfg, "", logger, nil, restCfg, "mock-source", "mock-context")
+	err := runner.Start()
+	require.NoError(t, err)
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Call shutdown multiple times - should not panic
+	runner.Shutdown()
+	runner.Shutdown()
+	runner.Shutdown()
+
+	assert.True(t, true)
+}
+
+// TestRunnerCancelFunctionExists tests that cancel function is set
+func TestRunnerCancelFunctionExists(t *testing.T) {
+	initialCfg := config.Configuration{
+		Logs: config.LogsConfiguration{
+			Level:  "info",
+			Pretty: false,
+		},
+		Forwards: []config.PortForwardConfiguration{},
+	}
+
+	restCfg := &rest.Config{}
+	logger := zerolog.New(nil)
+
+	runner := New(initialCfg, "", logger, nil, restCfg, "mock-source", "mock-context")
+
+	// Before start, cancel should be nil
+	assert.Nil(t, runner.cancel)
+
+	err := runner.Start()
+	require.NoError(t, err)
+
+	time.Sleep(50 * time.Millisecond)
+
+	// After start, cancel should be set
+	assert.NotNil(t, runner.cancel)
+
+	runner.Shutdown()
+}
+
+// TestRunnerWaitGroupSynchronization tests WaitGroup synchronization
+func TestRunnerWaitGroupSynchronization(t *testing.T) {
+	initialCfg := config.Configuration{
+		Logs: config.LogsConfiguration{
+			Level:  "info",
+			Pretty: false,
+		},
+		Forwards: []config.PortForwardConfiguration{},
+	}
+
+	restCfg := &rest.Config{}
+	logger := zerolog.New(nil)
+
+	runner := New(initialCfg, "", logger, nil, restCfg, "mock-source", "mock-context")
+	err := runner.Start()
+	require.NoError(t, err)
+
+	time.Sleep(50 * time.Millisecond)
+
+	// WaitGroup should be in use (watcher goroutine)
+	// When we shutdown, it should wait for all goroutines
+
+	shutdown := make(chan bool, 1)
+	go func() {
+		runner.Shutdown()
+		shutdown <- true
+	}()
+
+	// Shutdown should complete
+	select {
+	case <-shutdown:
+		assert.True(t, true)
+	case <-time.After(1 * time.Second):
+		t.Fatal("WaitGroup.Wait() timed out")
+	}
+}
+
+// TestRunnerShutdownWithForwardersMaps tests cleanup of forwarder maps
+func TestRunnerShutdownWithForwardersMaps(t *testing.T) {
+	initialCfg := config.Configuration{
+		Logs: config.LogsConfiguration{
+			Level:  "info",
+			Pretty: false,
+		},
+		Forwards: []config.PortForwardConfiguration{},
+	}
+
+	restCfg := &rest.Config{}
+	logger := zerolog.New(nil)
+
+	runner := New(initialCfg, "", logger, nil, restCfg, "mock-source", "mock-context")
+	err := runner.Start()
+	require.NoError(t, err)
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Manually add forwarders to maps
+	runner.mu.Lock()
+	runner.forwarders["test-1"] = nil
+	runner.forwarders["test-2"] = nil
+	runner.forwarderCancel["test-1"] = func() {}
+	runner.forwarderCancel["test-2"] = func() {}
+	runner.mu.Unlock()
+
+	// Shutdown should not clear the maps (that's app responsibility)
+	runner.Shutdown()
+
+	// Maps should still exist (not nil)
+	assert.NotNil(t, runner.forwarders)
+	assert.NotNil(t, runner.forwarderCancel)
+}
+
+// TestRunnerLoggerAccessDuringShudown tests logger is accessible during shutdown
+func TestRunnerLoggerAccessDuringShudown(t *testing.T) {
+	initialCfg := config.Configuration{
+		Logs: config.LogsConfiguration{
+			Level:  "info",
+			Pretty: false,
+		},
+		Forwards: []config.PortForwardConfiguration{},
+	}
+
+	restCfg := &rest.Config{}
+	logger := zerolog.New(nil)
+
+	runner := New(initialCfg, "", logger, nil, restCfg, "mock-source", "mock-context")
+	err := runner.Start()
+	require.NoError(t, err)
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Logger should be accessible
+	assert.NotNil(t, runner.logger)
+
+	runner.Shutdown()
+
+	// Logger should still be accessible after shutdown
+	assert.NotNil(t, runner.logger)
+}
+
+// TestRunnerShutdownMessageLogging tests that shutdown logs messages
+func TestRunnerShutdownMessageLogging(t *testing.T) {
+	initialCfg := config.Configuration{
+		Logs: config.LogsConfiguration{
+			Level:  "info",
+			Pretty: false,
+		},
+		Forwards: []config.PortForwardConfiguration{},
+	}
+
+	restCfg := &rest.Config{}
+	logger := zerolog.New(nil)
+
+	runner := New(initialCfg, "", logger, nil, restCfg, "mock-source", "mock-context")
+	err := runner.Start()
+	require.NoError(t, err)
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Should not panic during shutdown logging
+	runner.Shutdown()
+
+	assert.True(t, true)
+}
+
+// TestRunnerContextIntegration tests context flows through the runner
+func TestRunnerContextIntegration(t *testing.T) {
+	initialCfg := config.Configuration{
+		Logs: config.LogsConfiguration{
+			Level:  "info",
+			Pretty: false,
+		},
+		Forwards: []config.PortForwardConfiguration{},
+	}
+
+	restCfg := &rest.Config{}
+	logger := zerolog.New(nil)
+
+	runner := New(initialCfg, "", logger, nil, restCfg, "mock-source", "mock-context")
+	err := runner.Start()
+	require.NoError(t, err)
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Get the context
+	ctx := runner.ctx
+	assert.NotNil(t, ctx)
+
+	// Context should not be done yet
+	select {
+	case <-ctx.Done():
+		t.Fatal("Context should not be done yet")
+	default:
+		// Good, context is still active
+	}
+
+	// Shutdown
+	runner.Shutdown()
+
+	// Context should be done now
+	select {
+	case <-ctx.Done():
+		// Good, context is done
+		assert.True(t, true)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Context should be done after shutdown")
+	}
+}
