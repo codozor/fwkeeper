@@ -22,6 +22,10 @@ type Locator interface {
 // - "sts/statefulset-name" or "statefulset/statefulset-name" - statefulset reference
 // - "ds/daemonset-name" or "daemonset/daemonset-name" - daemonset reference
 func BuildLocator(resource string, namespace string, ports []string, client kubernetes.Interface) (Locator, error) {
+	if client == nil {
+		return nil, fmt.Errorf("kubernetes client is required")
+	}
+
 	parts := strings.Split(resource, "/")
 
 	if len(parts) == 1 {
