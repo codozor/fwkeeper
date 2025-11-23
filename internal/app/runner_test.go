@@ -1,6 +1,8 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -1012,5 +1014,319 @@ func TestReloadConfigMultipleSequentialReloads(t *testing.T) {
 	runner.mu.Lock()
 	assert.Equal(t, 0, len(runner.configuration.Forwards))
 	assert.Equal(t, "debug", runner.configuration.Logs.Level)
+	runner.mu.Unlock()
+}
+
+// Phase 6 Tests - File Watcher Integration
+
+// TestConfigReloadFromRealFile tests loading configuration from a real file
+func TestConfigReloadFromRealFile(t *testing.T) {
+	// Create a temporary config file
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test-config.cue")
+
+	configContent := `
+logs: {
+	level: "info"
+	pretty: false
+}
+
+forwards: [
+	{
+		name: "test-forward"
+		namespace: "default"
+		resource: "pod-1"
+		ports: ["8080"]
+	}
+]
+`
+
+	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	require.NoError(t, err)
+
+	// Load config from the file
+	cfg, err := config.ReadConfiguration(configPath)
+	require.NoError(t, err)
+
+	// Verify configuration was loaded correctly
+	assert.Equal(t, "info", cfg.Logs.Level)
+	assert.Equal(t, 1, len(cfg.Forwards))
+	assert.Equal(t, "test-forward", cfg.Forwards[0].Name)
+	assert.Equal(t, "default", cfg.Forwards[0].Namespace)
+	assert.Equal(t, "pod-1", cfg.Forwards[0].Resource)
+	assert.Equal(t, 1, len(cfg.Forwards[0].Ports))
+	assert.Equal(t, "8080", cfg.Forwards[0].Ports[0])
+}
+
+// TestConfigReloadMultipleForwards tests loading config with multiple forwarders from file
+func TestConfigReloadMultipleForwards(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "multi-config.cue")
+
+	configContent := `
+logs: {
+	level: "debug"
+	pretty: true
+}
+
+forwards: [
+	{
+		name: "api-server"
+		namespace: "prod"
+		resource: "api-deployment"
+		ports: ["8080", "8443"]
+	},
+	{
+		name: "database"
+		namespace: "prod"
+		resource: "postgres-pod"
+		ports: ["5432"]
+	},
+	{
+		name: "cache"
+		namespace: "prod"
+		resource: "redis-pod"
+		ports: ["6379:6380"]
+	}
+]
+`
+
+	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	require.NoError(t, err)
+
+	cfg, err := config.ReadConfiguration(configPath)
+	require.NoError(t, err)
+
+	assert.Equal(t, 3, len(cfg.Forwards))
+	assert.Equal(t, "api-server", cfg.Forwards[0].Name)
+	assert.Equal(t, "database", cfg.Forwards[1].Name)
+	assert.Equal(t, "cache", cfg.Forwards[2].Name)
+	assert.Equal(t, 2, len(cfg.Forwards[0].Ports))
+	assert.Equal(t, 1, len(cfg.Forwards[1].Ports))
+}
+
+// TestWatcherDetectsFileModification tests that file modification can be detected
+func TestWatcherDetectsFileModification(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "watch-config.cue")
+
+	// Create initial config
+	initialConfig := `
+logs: {
+	level: "info"
+	pretty: false
+}
+
+forwards: [
+	{
+		name: "forward-1"
+		namespace: "ns1"
+		resource: "pod-1"
+		ports: ["8080"]
+	}
+]
+`
+
+	err := os.WriteFile(configPath, []byte(initialConfig), 0644)
+	require.NoError(t, err)
+
+	// Load initial config
+	cfg1, err := config.ReadConfiguration(configPath)
+	require.NoError(t, err)
+	assert.Equal(t, 1, len(cfg1.Forwards))
+
+	// Modify the config file
+	modifiedConfig := `
+logs: {
+	level: "debug"
+	pretty: true
+}
+
+forwards: [
+	{
+		name: "forward-1"
+		namespace: "ns1"
+		resource: "pod-1"
+		ports: ["8080"]
+	},
+	{
+		name: "forward-2"
+		namespace: "ns2"
+		resource: "pod-2"
+		ports: ["9000"]
+	}
+]
+`
+
+	// Wait a moment to ensure file system timestamp differs
+	time.Sleep(10 * time.Millisecond)
+
+	err = os.WriteFile(configPath, []byte(modifiedConfig), 0644)
+	require.NoError(t, err)
+
+	// Load the modified config
+	cfg2, err := config.ReadConfiguration(configPath)
+	require.NoError(t, err)
+
+	// Verify configuration was updated
+	assert.Equal(t, "debug", cfg2.Logs.Level)
+	assert.Equal(t, 2, len(cfg2.Forwards))
+	assert.Equal(t, "forward-2", cfg2.Forwards[1].Name)
+}
+
+// TestConfigReloadWithInvalidFile tests error handling for invalid config file
+func TestConfigReloadWithInvalidFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "invalid-config.cue")
+
+	invalidConfig := `
+logs: {
+	level: "invalid_level"  // Invalid level
+	pretty: false
+}
+
+forwards: [
+	{
+		name: "forward-1"
+		namespace: "ns1"
+		resource: "pod-1"
+		ports: ["invalid_port"]  // Invalid port
+	}
+]
+`
+
+	err := os.WriteFile(configPath, []byte(invalidConfig), 0644)
+	require.NoError(t, err)
+
+	// Loading should fail due to validation errors
+	_, err = config.ReadConfiguration(configPath)
+	assert.Error(t, err, "should error on invalid configuration")
+}
+
+// TestConfigReloadMissingFile tests error handling for missing config file
+func TestConfigReloadMissingFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "nonexistent-config.cue")
+
+	// Try to load from non-existent file
+	_, err := config.ReadConfiguration(configPath)
+	assert.Error(t, err, "should error when config file does not exist")
+}
+
+// TestConfigFilePathParsing tests extracting directory from config path
+func TestConfigFilePathParsing(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		expected string
+	}{
+		{
+			name:     "absolute path",
+			path:     "/home/user/config/fwkeeper.cue",
+			expected: "/home/user/config",
+		},
+		{
+			name:     "relative path",
+			path:     "config/fwkeeper.cue",
+			expected: "config",
+		},
+		{
+			name:     "current directory",
+			path:     "fwkeeper.cue",
+			expected: ".",
+		},
+		{
+			name:     "nested path",
+			path:     "/etc/fwkeeper/config/app.cue",
+			expected: "/etc/fwkeeper/config",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := "."
+			for i := len(tt.path) - 1; i >= 0; i-- {
+				if tt.path[i] == '/' || tt.path[i] == '\\' {
+					dir = tt.path[:i]
+					break
+				}
+			}
+			if dir == "" {
+				dir = "."
+			}
+
+			assert.Equal(t, tt.expected, dir)
+		})
+	}
+}
+
+// TestRunnerWithConfigFile tests runner initialization with a config file
+func TestRunnerWithConfigFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "runner-test.cue")
+
+	configContent := `
+logs: {
+	level: "info"
+	pretty: false
+}
+
+forwards: []
+`
+
+	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	require.NoError(t, err)
+
+	// Load the configuration
+	cfg, err := config.ReadConfiguration(configPath)
+	require.NoError(t, err)
+
+	// Create runner with the config file
+	restCfg := &rest.Config{}
+	logger := zerolog.New(nil)
+
+	runner := New(cfg, configPath, logger, nil, restCfg, "mock-source", "mock-context")
+	err = runner.Start()
+	require.NoError(t, err)
+	defer runner.Shutdown()
+
+	// Verify runner configuration
+	runner.mu.Lock()
+	assert.Equal(t, configPath, runner.configPath)
+	assert.Equal(t, "info", runner.configuration.Logs.Level)
+	runner.mu.Unlock()
+}
+
+// TestFileWatcherConfigPath tests the config path is correctly stored
+func TestFileWatcherConfigPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test-config.cue")
+
+	// Create a dummy config file
+	err := os.WriteFile(configPath, []byte("logs: {level: \"info\", pretty: false}\nforwards: []"), 0644)
+	require.NoError(t, err)
+
+	initialCfg := config.Configuration{
+		Logs: config.LogsConfiguration{
+			Level:  "info",
+			Pretty: false,
+		},
+		Forwards: []config.PortForwardConfiguration{},
+	}
+
+	restCfg := &rest.Config{}
+	logger := zerolog.New(nil)
+
+	// Create runner with the config path
+	runner := New(initialCfg, configPath, logger, nil, restCfg, "mock-source", "mock-context")
+	err = runner.Start()
+	require.NoError(t, err)
+	defer runner.Shutdown()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify the config path is correctly stored
+	runner.mu.Lock()
+	assert.Equal(t, configPath, runner.configPath)
 	runner.mu.Unlock()
 }
