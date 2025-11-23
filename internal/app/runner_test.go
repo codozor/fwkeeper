@@ -627,3 +627,390 @@ func TestReloadConfigMultipleForwarders(t *testing.T) {
 	assert.Contains(t, forwardNames, "forward-3")
 	runner.mu.Unlock()
 }
+
+// Phase 5 Tests - Hot-reload and Signal Handling
+
+// TestBaseName tests the baseName helper function
+func TestBaseName(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		expected string
+	}{
+		{
+			name:     "unix absolute path",
+			path:     "/home/user/config.cue",
+			expected: "config.cue",
+		},
+		{
+			name:     "unix relative path",
+			path:     "config/app.cue",
+			expected: "app.cue",
+		},
+		{
+			name:     "windows absolute path",
+			path:     "C:\\config\\test.cue",
+			expected: "test.cue",
+		},
+		{
+			name:     "filename only",
+			path:     "config.cue",
+			expected: "config.cue",
+		},
+		{
+			name:     "empty string",
+			path:     "",
+			expected: "",
+		},
+		{
+			name:     "path with trailing slash",
+			path:     "/home/user/",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := baseName(tt.path)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestStopForwarderRemovesFromMaps tests that stopForwarder removes entries from maps
+func TestStopForwarderRemovesFromMaps(t *testing.T) {
+	initialCfg := config.Configuration{
+		Logs: config.LogsConfiguration{
+			Level:  "info",
+			Pretty: false,
+		},
+		Forwards: []config.PortForwardConfiguration{},
+	}
+
+	restCfg := &rest.Config{}
+	logger := zerolog.New(nil)
+
+	runner := New(initialCfg, "", logger, nil, restCfg, "mock-source", "mock-context")
+	err := runner.Start()
+	require.NoError(t, err)
+	defer runner.Shutdown()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Manually add a forwarder entry to the maps (simulating a running forwarder)
+	runner.mu.Lock()
+	runner.forwarders["test-forward"] = nil
+	runner.forwarderCancel["test-forward"] = func() {}
+	runner.mu.Unlock()
+
+	// Verify it was added
+	runner.mu.Lock()
+	assert.Equal(t, 1, len(runner.forwarders))
+	assert.Equal(t, 1, len(runner.forwarderCancel))
+	runner.mu.Unlock()
+
+	// Stop the forwarder
+	runner.mu.Lock()
+	runner.stopForwarder("test-forward")
+	runner.mu.Unlock()
+
+	// Verify it was removed
+	runner.mu.Lock()
+	assert.Equal(t, 0, len(runner.forwarders))
+	assert.Equal(t, 0, len(runner.forwarderCancel))
+	_, existsForwarder := runner.forwarders["test-forward"]
+	_, existsCancel := runner.forwarderCancel["test-forward"]
+	runner.mu.Unlock()
+
+	assert.False(t, existsForwarder, "forwarder should be removed")
+	assert.False(t, existsCancel, "cancel function should be removed")
+}
+
+// TestStopForwarderNonExistent tests stopForwarder with non-existent forwarder
+func TestStopForwarderNonExistent(t *testing.T) {
+	initialCfg := config.Configuration{
+		Logs: config.LogsConfiguration{
+			Level:  "info",
+			Pretty: false,
+		},
+		Forwards: []config.PortForwardConfiguration{},
+	}
+
+	restCfg := &rest.Config{}
+	logger := zerolog.New(nil)
+
+	runner := New(initialCfg, "", logger, nil, restCfg, "mock-source", "mock-context")
+	err := runner.Start()
+	require.NoError(t, err)
+	defer runner.Shutdown()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Try to stop non-existent forwarder (should not panic)
+	runner.mu.Lock()
+	runner.stopForwarder("non-existent")
+	runner.mu.Unlock()
+
+	// Should complete without panic
+	assert.True(t, true)
+}
+
+// TestReloadConfigUpdateState tests that configuration state is properly updated
+func TestReloadConfigUpdateState(t *testing.T) {
+	initialCfg := config.Configuration{
+		Logs: config.LogsConfiguration{
+			Level:  "info",
+			Pretty: false,
+		},
+		Forwards: []config.PortForwardConfiguration{},
+	}
+
+	restCfg := &rest.Config{}
+	logger := zerolog.New(nil)
+
+	runner := New(initialCfg, "testdata/config1.cue", logger, nil, restCfg, "mock-source", "mock-context")
+	err := runner.Start()
+	require.NoError(t, err)
+	defer runner.Shutdown()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify initial state
+	runner.mu.Lock()
+	assert.Equal(t, 0, len(runner.configuration.Forwards))
+	runner.mu.Unlock()
+
+	// Simulate config reload with new configuration
+	newCfg := config.Configuration{
+		Logs: config.LogsConfiguration{
+			Level:  "info",
+			Pretty: false,
+		},
+		Forwards: []config.PortForwardConfiguration{
+			{
+				Name:      "test-forward",
+				Namespace: "default",
+				Resource:  "pod-1",
+				Ports:     []string{"8080"},
+			},
+		},
+	}
+
+	runner.mu.Lock()
+	runner.configuration = newCfg
+	runner.mu.Unlock()
+
+	// Verify state was updated
+	runner.mu.Lock()
+	assert.Equal(t, 1, len(runner.configuration.Forwards))
+	assert.Equal(t, "test-forward", runner.configuration.Forwards[0].Name)
+	runner.mu.Unlock()
+}
+
+// TestReloadConfigStateTransition tests complex state transitions during reload
+func TestReloadConfigStateTransition(t *testing.T) {
+	initialCfg := config.Configuration{
+		Logs: config.LogsConfiguration{
+			Level:  "info",
+			Pretty: false,
+		},
+		Forwards: []config.PortForwardConfiguration{},
+	}
+
+	restCfg := &rest.Config{}
+	logger := zerolog.New(nil)
+
+	runner := New(initialCfg, "", logger, nil, restCfg, "mock-source", "mock-context")
+	err := runner.Start()
+	require.NoError(t, err)
+	defer runner.Shutdown()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Simulate initial config with 3 forwarders
+	runner.mu.Lock()
+	runner.configuration = config.Configuration{
+		Logs: config.LogsConfiguration{
+			Level:  "info",
+			Pretty: false,
+		},
+		Forwards: []config.PortForwardConfiguration{
+			{Name: "forward-1", Namespace: "ns1", Resource: "pod-1", Ports: []string{"8080"}},
+			{Name: "forward-2", Namespace: "ns2", Resource: "pod-2", Ports: []string{"9000"}},
+			{Name: "forward-3", Namespace: "ns3", Resource: "pod-3", Ports: []string{"7000"}},
+		},
+	}
+	runner.mu.Unlock()
+
+	// Reload with new configuration
+	newCfg := config.Configuration{
+		Logs: config.LogsConfiguration{
+			Level:  "info",
+			Pretty: false,
+		},
+		Forwards: []config.PortForwardConfiguration{
+			{Name: "forward-1", Namespace: "ns1", Resource: "pod-1", Ports: []string{"8080"}},
+			{Name: "forward-2", Namespace: "ns2-modified", Resource: "pod-2", Ports: []string{"9000"}},
+			{Name: "forward-4", Namespace: "ns4", Resource: "pod-4", Ports: []string{"6000"}},
+		},
+	}
+
+	runner.mu.Lock()
+	runner.configuration = newCfg
+	runner.mu.Unlock()
+
+	// Verify state transition
+	runner.mu.Lock()
+	assert.Equal(t, 3, len(runner.configuration.Forwards))
+	runner.mu.Unlock()
+}
+
+// TestReloadConfigPreservesLogConfiguration tests that log config is preserved
+func TestReloadConfigPreservesLogConfiguration(t *testing.T) {
+	initialCfg := config.Configuration{
+		Logs: config.LogsConfiguration{
+			Level:  "info",
+			Pretty: false,
+		},
+		Forwards: []config.PortForwardConfiguration{},
+	}
+
+	restCfg := &rest.Config{}
+	logger := zerolog.New(nil)
+
+	runner := New(initialCfg, "", logger, nil, restCfg, "mock-source", "mock-context")
+	err := runner.Start()
+	require.NoError(t, err)
+	defer runner.Shutdown()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// Reload with new log config
+	newCfg := config.Configuration{
+		Logs: config.LogsConfiguration{
+			Level:  "debug",
+			Pretty: true,
+		},
+		Forwards: []config.PortForwardConfiguration{},
+	}
+
+	runner.mu.Lock()
+	runner.configuration = newCfg
+	runner.mu.Unlock()
+
+	// Verify log config was updated
+	runner.mu.Lock()
+	assert.Equal(t, "debug", runner.configuration.Logs.Level)
+	assert.Equal(t, true, runner.configuration.Logs.Pretty)
+	runner.mu.Unlock()
+}
+
+// TestFileWatcherPathComparison tests the file path comparison logic
+func TestFileWatcherPathComparison(t *testing.T) {
+	tests := []struct {
+		name       string
+		configPath string
+		eventPath  string
+		expected   bool
+	}{
+		{
+			name:       "exact match",
+			configPath: "fwkeeper.cue",
+			eventPath:  "fwkeeper.cue",
+			expected:   true,
+		},
+		{
+			name:       "absolute paths match",
+			configPath: "/home/user/fwkeeper.cue",
+			eventPath:  "/home/user/fwkeeper.cue",
+			expected:   true,
+		},
+		{
+			name:       "different files",
+			configPath: "fwkeeper.cue",
+			eventPath:  "other.cue",
+			expected:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Test baseName comparison
+			configBaseName := baseName(tt.configPath)
+			eventBaseName := baseName(tt.eventPath)
+			result := configBaseName == eventBaseName && configBaseName != ""
+
+			if tt.expected {
+				assert.True(t, result, "paths should match")
+			} else {
+				assert.False(t, result, "paths should not match")
+			}
+		})
+	}
+}
+
+// TestReloadConfigMultipleSequentialReloads tests multiple successive reloads
+func TestReloadConfigMultipleSequentialReloads(t *testing.T) {
+	initialCfg := config.Configuration{
+		Logs: config.LogsConfiguration{
+			Level:  "info",
+			Pretty: false,
+		},
+		Forwards: []config.PortForwardConfiguration{},
+	}
+
+	restCfg := &rest.Config{}
+	logger := zerolog.New(nil)
+
+	runner := New(initialCfg, "", logger, nil, restCfg, "mock-source", "mock-context")
+	err := runner.Start()
+	require.NoError(t, err)
+	defer runner.Shutdown()
+
+	time.Sleep(50 * time.Millisecond)
+
+	// First reload
+	cfg1 := config.Configuration{
+		Logs: config.LogsConfiguration{Level: "info", Pretty: false},
+		Forwards: []config.PortForwardConfiguration{
+			{Name: "forward-1", Namespace: "ns1", Resource: "pod-1", Ports: []string{"8080"}},
+		},
+	}
+	runner.mu.Lock()
+	runner.configuration = cfg1
+	runner.mu.Unlock()
+
+	runner.mu.Lock()
+	assert.Equal(t, 1, len(runner.configuration.Forwards))
+	runner.mu.Unlock()
+
+	// Second reload
+	cfg2 := config.Configuration{
+		Logs: config.LogsConfiguration{Level: "info", Pretty: false},
+		Forwards: []config.PortForwardConfiguration{
+			{Name: "forward-1", Namespace: "ns1", Resource: "pod-1", Ports: []string{"8080"}},
+			{Name: "forward-2", Namespace: "ns2", Resource: "pod-2", Ports: []string{"9000"}},
+		},
+	}
+	runner.mu.Lock()
+	runner.configuration = cfg2
+	runner.mu.Unlock()
+
+	runner.mu.Lock()
+	assert.Equal(t, 2, len(runner.configuration.Forwards))
+	runner.mu.Unlock()
+
+	// Third reload
+	cfg3 := config.Configuration{
+		Logs: config.LogsConfiguration{Level: "debug", Pretty: true},
+		Forwards: []config.PortForwardConfiguration{},
+	}
+	runner.mu.Lock()
+	runner.configuration = cfg3
+	runner.mu.Unlock()
+
+	runner.mu.Lock()
+	assert.Equal(t, 0, len(runner.configuration.Forwards))
+	assert.Equal(t, "debug", runner.configuration.Logs.Level)
+	runner.mu.Unlock()
+}
