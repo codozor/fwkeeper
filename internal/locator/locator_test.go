@@ -4,19 +4,35 @@ import (
 	"context"
 	"testing"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/kubernetes/fake"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+// newTestMockClient creates a fake Kubernetes client for testing
+func newTestMockClient(objects ...runtime.Object) *fake.Clientset {
+	return fake.NewClientset(objects...)
+}
+
 // TestPodLocatorFound tests that a running pod is found
 func TestPodLocatorFound(t *testing.T) {
-	mock := NewMockKubernetesClient()
-	mock.AddPod("default", "api-server", corev1.PodRunning)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-server",
+			Namespace: "default",
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+		},
+	}
 
-	locator, err := NewPodLocator("api-server", "default", []string{"8080"}, mock)
+	client := newTestMockClient(pod)
+	locator, err := NewPodLocator("api-server", "default", []string{"8080"}, client)
 	require.NoError(t, err)
 
 	podName, ports, err := locator.Locate(context.Background())
@@ -28,9 +44,8 @@ func TestPodLocatorFound(t *testing.T) {
 
 // TestPodLocatorNotFound tests error when pod doesn't exist
 func TestPodLocatorNotFound(t *testing.T) {
-	mock := NewMockKubernetesClient()
-
-	locator, err := NewPodLocator("nonexistent", "default", []string{"8080"}, mock)
+	client := newTestMockClient()
+	locator, err := NewPodLocator("nonexistent", "default", []string{"8080"}, client)
 	require.NoError(t, err)
 
 	_, _, err = locator.Locate(context.Background())
@@ -54,10 +69,18 @@ func TestPodLocatorNotRunning(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			mock := NewMockKubernetesClient()
-			mock.AddPod("default", "api-server", tc.phase)
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "api-server",
+					Namespace: "default",
+				},
+				Status: corev1.PodStatus{
+					Phase: tc.phase,
+				},
+			}
 
-			locator, err := NewPodLocator("api-server", "default", []string{"8080"}, mock)
+			client := newTestMockClient(pod)
+			locator, err := NewPodLocator("api-server", "default", []string{"8080"}, client)
 			require.NoError(t, err)
 
 			_, _, err = locator.Locate(context.Background())
@@ -71,22 +94,37 @@ func TestPodLocatorNotRunning(t *testing.T) {
 
 // TestServiceLocatorFound tests that a service with running pods is found
 func TestServiceLocatorFound(t *testing.T) {
-	mock := NewMockKubernetesClient()
-
-	// Add service
 	selector := map[string]string{"app": "api"}
-	mock.AddService("default", "api-svc", selector, []corev1.ServicePort{
-		{
-			Port:       8080,
-			TargetPort: intstr.FromInt(8080),
+
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-svc",
+			Namespace: "default",
 		},
-	})
+		Spec: corev1.ServiceSpec{
+			Selector: selector,
+			Ports: []corev1.ServicePort{
+				{
+					Port:       8080,
+					TargetPort: intstr.FromInt(8080),
+				},
+			},
+		},
+	}
 
-	// Add matching running pod
-	pod := mock.AddPod("default", "api-server-1", corev1.PodRunning)
-	pod.Labels = selector
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-server-1",
+			Namespace: "default",
+			Labels:    selector,
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+		},
+	}
 
-	locator, err := NewServiceLocator("api-svc", "default", []string{"8080"}, mock)
+	client := newTestMockClient(svc, pod)
+	locator, err := NewServiceLocator("api-svc", "default", []string{"8080"}, client)
 	require.NoError(t, err)
 
 	podName, ports, err := locator.Locate(context.Background())
@@ -98,9 +136,8 @@ func TestServiceLocatorFound(t *testing.T) {
 
 // TestServiceLocatorNotFound tests error when service doesn't exist
 func TestServiceLocatorNotFound(t *testing.T) {
-	mock := NewMockKubernetesClient()
-
-	locator, err := NewServiceLocator("nonexistent-svc", "default", []string{"8080"}, mock)
+	client := newTestMockClient()
+	locator, err := NewServiceLocator("nonexistent-svc", "default", []string{"8080"}, client)
 	require.NoError(t, err)
 
 	_, _, err = locator.Locate(context.Background())
@@ -111,22 +148,37 @@ func TestServiceLocatorNotFound(t *testing.T) {
 
 // TestServiceLocatorNoRunningPods tests error when service has no running pods
 func TestServiceLocatorNoRunningPods(t *testing.T) {
-	mock := NewMockKubernetesClient()
-
-	// Add service
 	selector := map[string]string{"app": "api"}
-	mock.AddService("default", "api-svc", selector, []corev1.ServicePort{
-		{
-			Port:       8080,
-			TargetPort: intstr.FromInt(8080),
+
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-svc",
+			Namespace: "default",
 		},
-	})
+		Spec: corev1.ServiceSpec{
+			Selector: selector,
+			Ports: []corev1.ServicePort{
+				{
+					Port:       8080,
+					TargetPort: intstr.FromInt(8080),
+				},
+			},
+		},
+	}
 
-	// Add pod but it's not running
-	pod := mock.AddPod("default", "api-server-1", corev1.PodPending)
-	pod.Labels = selector
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-server-1",
+			Namespace: "default",
+			Labels:    selector,
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodPending,
+		},
+	}
 
-	locator, err := NewServiceLocator("api-svc", "default", []string{"8080"}, mock)
+	client := newTestMockClient(svc, pod)
+	locator, err := NewServiceLocator("api-svc", "default", []string{"8080"}, client)
 	require.NoError(t, err)
 
 	_, _, err = locator.Locate(context.Background())
@@ -137,19 +189,33 @@ func TestServiceLocatorNoRunningPods(t *testing.T) {
 
 // TestDeploymentLocatorFound tests that a deployment with running pods is found
 func TestDeploymentLocatorFound(t *testing.T) {
-	mock := NewMockKubernetesClient()
-
-	// Add deployment with selector
 	selector := &metav1.LabelSelector{
 		MatchLabels: map[string]string{"app": "api"},
 	}
-	mock.AddDeployment("default", "api-deploy", selector)
 
-	// Add matching running pod
-	pod := mock.AddPod("default", "api-deploy-abc123", corev1.PodRunning)
-	pod.Labels = selector.MatchLabels
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-deploy",
+			Namespace: "default",
+		},
+		Spec: appsv1.DeploymentSpec{
+			Selector: selector,
+		},
+	}
 
-	locator, err := NewSelectorBasedLocator("deployment", "api-deploy", "default", []string{"8080"}, mock)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-deploy-abc123",
+			Namespace: "default",
+			Labels:    selector.MatchLabels,
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+		},
+	}
+
+	client := newTestMockClient(deploy, pod)
+	locator, err := NewSelectorBasedLocator("deployment", "api-deploy", "default", []string{"8080"}, client)
 	require.NoError(t, err)
 
 	podName, ports, err := locator.Locate(context.Background())
@@ -161,19 +227,33 @@ func TestDeploymentLocatorFound(t *testing.T) {
 
 // TestStatefulSetLocatorFound tests that a statefulset with running pods is found
 func TestStatefulSetLocatorFound(t *testing.T) {
-	mock := NewMockKubernetesClient()
-
-	// Add statefulset
 	selector := &metav1.LabelSelector{
 		MatchLabels: map[string]string{"app": "postgres"},
 	}
-	mock.AddStatefulSet("default", "postgres-sts", selector)
 
-	// Add matching running pod
-	pod := mock.AddPod("default", "postgres-sts-0", corev1.PodRunning)
-	pod.Labels = selector.MatchLabels
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "postgres-sts",
+			Namespace: "default",
+		},
+		Spec: appsv1.StatefulSetSpec{
+			Selector: selector,
+		},
+	}
 
-	locator, err := NewSelectorBasedLocator("statefulset", "postgres-sts", "default", []string{"5432"}, mock)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "postgres-sts-0",
+			Namespace: "default",
+			Labels:    selector.MatchLabels,
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+		},
+	}
+
+	client := newTestMockClient(sts, pod)
+	locator, err := NewSelectorBasedLocator("statefulset", "postgres-sts", "default", []string{"5432"}, client)
 	require.NoError(t, err)
 
 	podName, ports, err := locator.Locate(context.Background())
@@ -185,19 +265,33 @@ func TestStatefulSetLocatorFound(t *testing.T) {
 
 // TestDaemonSetLocatorFound tests that a daemonset with running pods is found
 func TestDaemonSetLocatorFound(t *testing.T) {
-	mock := NewMockKubernetesClient()
-
-	// Add daemonset
 	selector := &metav1.LabelSelector{
 		MatchLabels: map[string]string{"app": "monitoring"},
 	}
-	mock.AddDaemonSet("default", "prometheus-ds", selector)
 
-	// Add matching running pod
-	pod := mock.AddPod("default", "prometheus-ds-node1", corev1.PodRunning)
-	pod.Labels = selector.MatchLabels
+	ds := &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "prometheus-ds",
+			Namespace: "default",
+		},
+		Spec: appsv1.DaemonSetSpec{
+			Selector: selector,
+		},
+	}
 
-	locator, err := NewSelectorBasedLocator("daemonset", "prometheus-ds", "default", []string{"9090"}, mock)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "prometheus-ds-node1",
+			Namespace: "default",
+			Labels:    selector.MatchLabels,
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+		},
+	}
+
+	client := newTestMockClient(ds, pod)
+	locator, err := NewSelectorBasedLocator("daemonset", "prometheus-ds", "default", []string{"9090"}, client)
 	require.NoError(t, err)
 
 	podName, ports, err := locator.Locate(context.Background())
@@ -209,10 +303,18 @@ func TestDaemonSetLocatorFound(t *testing.T) {
 
 // TestBuildLocatorPodFormat tests BuildLocator with pod format
 func TestBuildLocatorPodFormat(t *testing.T) {
-	mock := NewMockKubernetesClient()
-	mock.AddPod("default", "api-server", corev1.PodRunning)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "api-server",
+			Namespace: "default",
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+		},
+	}
 
-	locator, err := BuildLocator("api-server", "default", []string{"8080"}, mock)
+	client := newTestMockClient(pod)
+	locator, err := BuildLocator("api-server", "default", []string{"8080"}, client)
 
 	require.NoError(t, err)
 	assert.NotNil(t, locator)
@@ -235,15 +337,32 @@ func TestBuildLocatorServiceFormats(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			mock := NewMockKubernetesClient()
 			selector := map[string]string{"app": "api"}
-			mock.AddService("default", "api-svc", selector, []corev1.ServicePort{
-				{Port: 8080, TargetPort: intstr.FromInt(8080)},
-			})
-			pod := mock.AddPod("default", "api-server-1", corev1.PodRunning)
-			pod.Labels = selector
+			svc := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "api-svc",
+					Namespace: "default",
+				},
+				Spec: corev1.ServiceSpec{
+					Selector: selector,
+					Ports: []corev1.ServicePort{
+						{Port: 8080, TargetPort: intstr.FromInt(8080)},
+					},
+				},
+			}
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "api-server-1",
+					Namespace: "default",
+					Labels:    selector,
+				},
+				Status: corev1.PodStatus{
+					Phase: corev1.PodRunning,
+				},
+			}
 
-			locator, err := BuildLocator(tc.resource, "default", []string{"8080"}, mock)
+			client := newTestMockClient(svc, pod)
+			locator, err := BuildLocator(tc.resource, "default", []string{"8080"}, client)
 			require.NoError(t, err)
 
 			_, _, err = locator.Locate(context.Background())
@@ -252,7 +371,7 @@ func TestBuildLocatorServiceFormats(t *testing.T) {
 	}
 }
 
-// TestBuildLocatorDeploymentFormats tests BuildLocator with deployment formats
+// TestBuildLocatorDeploymentFormats tests BuildLocator with various deployment formats
 func TestBuildLocatorDeploymentFormats(t *testing.T) {
 	testCases := []struct {
 		name     string
@@ -265,15 +384,31 @@ func TestBuildLocatorDeploymentFormats(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			mock := NewMockKubernetesClient()
 			selector := &metav1.LabelSelector{
 				MatchLabels: map[string]string{"app": "api"},
 			}
-			mock.AddDeployment("default", "api-deploy", selector)
-			pod := mock.AddPod("default", "api-deploy-abc", corev1.PodRunning)
-			pod.Labels = selector.MatchLabels
+			deploy := &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "api-deploy",
+					Namespace: "default",
+				},
+				Spec: appsv1.DeploymentSpec{
+					Selector: selector,
+				},
+			}
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "api-deploy-abc",
+					Namespace: "default",
+					Labels:    selector.MatchLabels,
+				},
+				Status: corev1.PodStatus{
+					Phase: corev1.PodRunning,
+				},
+			}
 
-			locator, err := BuildLocator(tc.resource, "default", []string{"8080"}, mock)
+			client := newTestMockClient(deploy, pod)
+			locator, err := BuildLocator(tc.resource, "default", []string{"8080"}, client)
 			require.NoError(t, err)
 
 			_, _, err = locator.Locate(context.Background())
@@ -284,7 +419,7 @@ func TestBuildLocatorDeploymentFormats(t *testing.T) {
 
 // TestBuildLocatorInvalidFormat tests BuildLocator with invalid format
 func TestBuildLocatorInvalidFormat(t *testing.T) {
-	mock := NewMockKubernetesClient()
+	client := newTestMockClient()
 
 	testCases := []struct {
 		name     string
@@ -296,7 +431,7 @@ func TestBuildLocatorInvalidFormat(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := BuildLocator(tc.resource, "default", []string{"8080"}, mock)
+			_, err := BuildLocator(tc.resource, "default", []string{"8080"}, client)
 			assert.Error(t, err)
 		})
 	}

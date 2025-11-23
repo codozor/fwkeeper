@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 
 	"github.com/codozor/fwkeeper/internal/config"
@@ -135,8 +136,9 @@ func TestRunnerConfigChangeDetection(t *testing.T) {
 
 	restCfg := &rest.Config{}
 	logger := zerolog.New(nil)
+	client := fake.NewClientset() // Use fake client instead of nil
 
-	runner := New(cfg, "", logger, nil, restCfg, "mock-source", "mock-context")
+	runner := New(cfg, "", logger, client, restCfg, "mock-source", "mock-context")
 	err := runner.Start()
 	require.NoError(t, err)
 	defer runner.Shutdown()

@@ -6,6 +6,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 )
 
 // PodLocator locates a specific pod by name and returns its port mappings.
@@ -13,11 +14,11 @@ type PodLocator struct {
 	podName   string
 	namespace string
 	ports     []string
-	client    KubernetesClient
+	client    kubernetes.Interface
 }
 
 // NewPodLocator creates a new pod locator for the specified pod name.
-func NewPodLocator(podName string, namespace string, ports []string, client KubernetesClient) (*PodLocator, error) {
+func NewPodLocator(podName string, namespace string, ports []string, client kubernetes.Interface) (*PodLocator, error) {
 	return &PodLocator{
 		podName:   podName,
 		namespace: namespace,
