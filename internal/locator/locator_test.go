@@ -51,7 +51,7 @@ func TestPodLocatorNotFound(t *testing.T) {
 	_, _, err = locator.Locate(context.Background())
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get pod")
+	assert.Contains(t, err.Error(), "not found")
 	assert.Contains(t, err.Error(), "nonexistent")
 }
 
@@ -86,8 +86,14 @@ func TestPodLocatorNotRunning(t *testing.T) {
 			_, _, err = locator.Locate(context.Background())
 
 			assert.Error(t, err)
-			assert.Contains(t, err.Error(), "not running")
-			assert.Contains(t, err.Error(), string(tc.phase))
+			// For failed pods, we have a specific error; for others, we say "not running"
+			errMsg := err.Error()
+			if tc.phase == corev1.PodFailed {
+				assert.Contains(t, errMsg, "failed state")
+			} else {
+				assert.Contains(t, errMsg, "not running")
+				assert.Contains(t, errMsg, string(tc.phase))
+			}
 		})
 	}
 }
@@ -143,7 +149,7 @@ func TestServiceLocatorNotFound(t *testing.T) {
 	_, _, err = locator.Locate(context.Background())
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to get service")
+	assert.Contains(t, err.Error(), "not found")
 }
 
 // TestServiceLocatorNoRunningPods tests error when service has no running pods

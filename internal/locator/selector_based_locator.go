@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -44,7 +45,14 @@ func (l *SelectorBasedLocator) Locate(ctx context.Context) (string, []string, er
 		LabelSelector: labelSelector.String(),
 	})
 	if err != nil {
-		return "", []string{}, fmt.Errorf("failed to list pods for %s %s: %w", l.resourceType, l.resourceName, err)
+		// Classify API errors
+		if apierrors.IsTimeout(err) || apierrors.IsServerTimeout(err) {
+			return "", []string{}, NewAPITransientError(fmt.Sprintf("API timeout listing pods for %s %s", l.resourceType, l.resourceName), err)
+		}
+		if apierrors.IsForbidden(err) || apierrors.IsUnauthorized(err) {
+			return "", []string{}, NewPermissionDeniedError("list", fmt.Sprintf("pods for %s %s", l.resourceType, l.resourceName), err)
+		}
+		return "", []string{}, NewAPITransientError(fmt.Sprintf("failed to list pods for %s %s", l.resourceType, l.resourceName), err)
 	}
 
 	// Find the first running pod
@@ -54,7 +62,11 @@ func (l *SelectorBasedLocator) Locate(ctx context.Context) (string, []string, er
 		}
 	}
 
-	return "", []string{}, fmt.Errorf("no running pod found for %s %s", l.resourceType, l.resourceName)
+	return "", []string{}, &LocateError{
+		Type:    ErrorTypeNoPodAvailable,
+		Message: fmt.Sprintf("no running pod found for %s %s", l.resourceType, l.resourceName),
+		Err:     nil,
+	}
 }
 
 // getSelector retrieves the label selector for the resource based on its type.
@@ -67,7 +79,7 @@ func (l *SelectorBasedLocator) getSelector(ctx context.Context) (labels.Selector
 	case "daemonset", "ds":
 		return l.getDaemonSetSelector(ctx)
 	default:
-		return nil, fmt.Errorf("unsupported resource type: %s", l.resourceType)
+		return nil, NewConfigInvalidError(fmt.Sprintf("unsupported resource type: %s", l.resourceType), nil)
 	}
 }
 
@@ -75,11 +87,17 @@ func (l *SelectorBasedLocator) getSelector(ctx context.Context) (labels.Selector
 func (l *SelectorBasedLocator) getDeploymentSelector(ctx context.Context) (labels.Selector, error) {
 	deployment, err := l.client.AppsV1().Deployments(l.namespace).Get(ctx, l.resourceName, metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get deployment %s: %w", l.resourceName, err)
+		if apierrors.IsNotFound(err) {
+			return nil, NewResourceNotFoundError("deployment", l.resourceName, err)
+		}
+		if apierrors.IsTimeout(err) || apierrors.IsServerTimeout(err) {
+			return nil, NewAPITransientError(fmt.Sprintf("API timeout getting deployment %s", l.resourceName), err)
+		}
+		return nil, NewAPITransientError(fmt.Sprintf("failed to get deployment %s", l.resourceName), err)
 	}
 
 	if deployment.Spec.Selector == nil {
-		return nil, fmt.Errorf("deployment %s has no selector", l.resourceName)
+		return nil, NewConfigInvalidError(fmt.Sprintf("deployment %s has no selector", l.resourceName), nil)
 	}
 
 	return labels.Set(deployment.Spec.Selector.MatchLabels).AsSelector(), nil
@@ -89,11 +107,17 @@ func (l *SelectorBasedLocator) getDeploymentSelector(ctx context.Context) (label
 func (l *SelectorBasedLocator) getStatefulSetSelector(ctx context.Context) (labels.Selector, error) {
 	statefulSet, err := l.client.AppsV1().StatefulSets(l.namespace).Get(ctx, l.resourceName, metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get statefulset %s: %w", l.resourceName, err)
+		if apierrors.IsNotFound(err) {
+			return nil, NewResourceNotFoundError("statefulset", l.resourceName, err)
+		}
+		if apierrors.IsTimeout(err) || apierrors.IsServerTimeout(err) {
+			return nil, NewAPITransientError(fmt.Sprintf("API timeout getting statefulset %s", l.resourceName), err)
+		}
+		return nil, NewAPITransientError(fmt.Sprintf("failed to get statefulset %s", l.resourceName), err)
 	}
 
 	if statefulSet.Spec.Selector == nil {
-		return nil, fmt.Errorf("statefulset %s has no selector", l.resourceName)
+		return nil, NewConfigInvalidError(fmt.Sprintf("statefulset %s has no selector", l.resourceName), nil)
 	}
 
 	return labels.Set(statefulSet.Spec.Selector.MatchLabels).AsSelector(), nil
@@ -103,11 +127,17 @@ func (l *SelectorBasedLocator) getStatefulSetSelector(ctx context.Context) (labe
 func (l *SelectorBasedLocator) getDaemonSetSelector(ctx context.Context) (labels.Selector, error) {
 	daemonSet, err := l.client.AppsV1().DaemonSets(l.namespace).Get(ctx, l.resourceName, metav1.GetOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get daemonset %s: %w", l.resourceName, err)
+		if apierrors.IsNotFound(err) {
+			return nil, NewResourceNotFoundError("daemonset", l.resourceName, err)
+		}
+		if apierrors.IsTimeout(err) || apierrors.IsServerTimeout(err) {
+			return nil, NewAPITransientError(fmt.Sprintf("API timeout getting daemonset %s", l.resourceName), err)
+		}
+		return nil, NewAPITransientError(fmt.Sprintf("failed to get daemonset %s", l.resourceName), err)
 	}
 
 	if daemonSet.Spec.Selector == nil {
-		return nil, fmt.Errorf("daemonset %s has no selector", l.resourceName)
+		return nil, NewConfigInvalidError(fmt.Sprintf("daemonset %s has no selector", l.resourceName), nil)
 	}
 
 	return labels.Set(daemonSet.Spec.Selector.MatchLabels).AsSelector(), nil
