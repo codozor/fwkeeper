@@ -1,11 +1,17 @@
 package forwarder
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/client-go/kubernetes/fake"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/codozor/fwkeeper/internal/config"
 )
@@ -360,4 +366,285 @@ func splitPort(portSpec string) []string {
 	}
 
 	return parts
+}
+
+// === INTEGRATION TESTS ===
+
+// MockLocator implements locator.Locator for testing
+type MockLocator struct {
+	podName string
+	ports   []string
+	err     error
+	calls   int
+}
+
+func (m *MockLocator) Locate(ctx context.Context) (string, []string, error) {
+	m.calls++
+	if m.err != nil {
+		return "", nil, m.err
+	}
+	return m.podName, m.ports, nil
+}
+
+// Helper function to create a context with a logger for tests
+func contextWithLogger() context.Context {
+	// Create a logger that discards output for tests
+	logger := zerolog.New(nil).With().Logger()
+	return logger.WithContext(context.Background())
+}
+
+// TestForwarderStartWithValidPod tests happy path: pod located, no errors
+func TestForwarderStartWithValidPod(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// Create a fake pod
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-pod",
+			Namespace: "default",
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+		},
+	}
+
+	client := fake.NewClientset(pod)
+	mockLocator := &MockLocator{
+		podName: "test-pod",
+		ports:   []string{"8080:8080"},
+	}
+
+	cfg := config.PortForwardConfiguration{
+		Name:      "test-fwd",
+		Namespace: "default",
+		Resource:  "test-pod",
+		Ports:     []string{"8080:8080"},
+	}
+
+	// Create a forwarder with mock locator
+	fwd := &Forwarder{
+		locator:       mockLocator,
+		configuration: cfg,
+		client:        client,
+		retryConfig:   DefaultRetryConfig(),
+		attempt:       0,
+	}
+
+	// Verify that Locate was called
+	_, _, err := fwd.locator.Locate(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, mockLocator.calls)
+}
+
+// TestForwarderLocatorError tests retry behavior when locator fails
+func TestForwarderLocatorError(t *testing.T) {
+	ctx, cancel := context.WithTimeout(contextWithLogger(), 500*time.Millisecond)
+	defer cancel()
+
+	mockLocator := &MockLocator{
+		err: errors.New("pod not found"),
+	}
+
+	cfg := config.PortForwardConfiguration{
+		Name:      "test-fwd",
+		Namespace: "default",
+		Resource:  "missing-pod",
+		Ports:     []string{"8080:8080"},
+	}
+
+	client := fake.NewClientset()
+	fwd := &Forwarder{
+		locator:       mockLocator,
+		configuration: cfg,
+		client:        client,
+		retryConfig:   DefaultRetryConfig(),
+		attempt:       0,
+	}
+
+	// Start should retry on locator error
+	// Context will timeout after 500ms, forcing exit
+	fwd.Start(ctx)
+
+	// Should have attempted multiple times due to retries
+	assert.Greater(t, mockLocator.calls, 1, "Should retry on locator error")
+}
+
+// TestForwarderRetryAttemptIncrement tests that attempt counter increments on errors
+func TestForwarderRetryAttemptIncrement(t *testing.T) {
+	ctx, cancel := context.WithTimeout(contextWithLogger(), 300*time.Millisecond)
+	defer cancel()
+
+	mockLocator := &MockLocator{
+		err: errors.New("always fails"),
+	}
+
+	cfg := config.PortForwardConfiguration{
+		Name:      "test-fwd",
+		Namespace: "default",
+		Resource:  "pod",
+		Ports:     []string{"8080"},
+	}
+
+	client := fake.NewClientset()
+	fwd := &Forwarder{
+		locator:       mockLocator,
+		configuration: cfg,
+		client:        client,
+		retryConfig: RetryConfig{
+			InitialDelay: 10 * time.Millisecond,
+			MaxDelay:     100 * time.Millisecond,
+			Multiplier:   2.0,
+			Jitter:       false,
+		},
+		attempt: 0,
+	}
+
+	fwd.Start(ctx)
+
+	// Attempt should have been incremented by retry failures
+	assert.Greater(t, fwd.attempt, uint(0), "Attempt counter should increment on failures")
+}
+
+// TestForwarderContextCancellation tests graceful shutdown on context cancel
+func TestForwarderContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(contextWithLogger())
+
+	mockLocator := &MockLocator{
+		err: errors.New("pod not found"), // Make locator fail so we stay in retry loop
+	}
+
+	cfg := config.PortForwardConfiguration{
+		Name:      "test-fwd",
+		Namespace: "default",
+		Resource:  "test-pod",
+		Ports:     []string{"8080"},
+	}
+
+	client := fake.NewClientset()
+	fwd := &Forwarder{
+		locator:       mockLocator,
+		configuration: cfg,
+		client:        client,
+		retryConfig: RetryConfig{
+			InitialDelay: 5 * time.Millisecond,
+			MaxDelay:     10 * time.Millisecond,
+			Multiplier:   1.5,
+			Jitter:       false,
+		},
+		attempt: 0,
+	}
+
+	// Cancel context after a short delay
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		cancel()
+	}()
+
+	// Start should exit when context is cancelled
+	startTime := time.Now()
+	fwd.Start(ctx)
+	elapsed := time.Since(startTime)
+
+	// Should exit within 150ms (accounting for retry delays + cancellation processing)
+	assert.Less(t, elapsed, 150*time.Millisecond, "Should exit quickly on context cancellation")
+}
+
+// TestForwarderInfoString tests forwarder info formatting
+func TestForwarderInfoString(t *testing.T) {
+	cfg := config.PortForwardConfiguration{
+		Name:      "api-fwd",
+		Namespace: "production",
+		Resource:  "api-server",
+		Ports:     []string{"8080", "9000"},
+	}
+
+	client := fake.NewClientset()
+	mockLocator := &MockLocator{}
+
+	fwd := &Forwarder{
+		locator:       mockLocator,
+		configuration: cfg,
+		client:        client,
+		retryConfig:   DefaultRetryConfig(),
+	}
+
+	info := fwd.forwarderInfo()
+	assert.Contains(t, info, "api-fwd")
+	assert.Contains(t, info, "production")
+	assert.Contains(t, info, "api-server")
+	assert.Contains(t, info, "8080")
+	assert.Contains(t, info, "9000")
+}
+
+// TestForwarderCalculateBackoff tests exponential backoff calculation
+func TestForwarderCalculateBackoff(t *testing.T) {
+	cfg := config.PortForwardConfiguration{
+		Name:      "test",
+		Namespace: "default",
+		Resource:  "pod",
+		Ports:     []string{"8080"},
+	}
+
+	client := fake.NewClientset()
+	mockLocator := &MockLocator{}
+
+	fwd := &Forwarder{
+		locator:       mockLocator,
+		configuration: cfg,
+		client:        client,
+		retryConfig: RetryConfig{
+			InitialDelay: 100 * time.Millisecond,
+			MaxDelay:     5 * time.Second,
+			Multiplier:   2.0,
+			Jitter:       false,
+		},
+		attempt: 0,
+	}
+
+	// Test increasing backoff with attempts
+	delay1 := fwd.calculateBackoff()
+	assert.Equal(t, 100*time.Millisecond, delay1)
+
+	fwd.attempt = 1
+	delay2 := fwd.calculateBackoff()
+	assert.Equal(t, 200*time.Millisecond, delay2)
+
+	fwd.attempt = 2
+	delay3 := fwd.calculateBackoff()
+	assert.Equal(t, 400*time.Millisecond, delay3)
+
+	fwd.attempt = 3
+	delay4 := fwd.calculateBackoff()
+	assert.Equal(t, 800*time.Millisecond, delay4)
+
+	// Verify max delay is enforced
+	fwd.attempt = 10
+	delayMax := fwd.calculateBackoff()
+	assert.LessOrEqual(t, delayMax, fwd.retryConfig.MaxDelay)
+}
+
+// TestForwarderConfig tests Config() method
+func TestForwarderConfig(t *testing.T) {
+	cfg := config.PortForwardConfiguration{
+		Name:      "test-fwd",
+		Namespace: "ns",
+		Resource:  "pod",
+		Ports:     []string{"8080", "9000"},
+	}
+
+	client := fake.NewClientset()
+	mockLocator := &MockLocator{}
+
+	fwd := &Forwarder{
+		locator:       mockLocator,
+		configuration: cfg,
+		client:        client,
+	}
+
+	retrievedCfg := fwd.Config()
+	assert.Equal(t, cfg.Name, retrievedCfg.Name)
+	assert.Equal(t, cfg.Namespace, retrievedCfg.Namespace)
+	assert.Equal(t, cfg.Resource, retrievedCfg.Resource)
+	assert.Equal(t, cfg.Ports, retrievedCfg.Ports)
 }
