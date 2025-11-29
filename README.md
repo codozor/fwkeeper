@@ -1,7 +1,11 @@
 # fwkeeper
 
-[![Go](https://github.com/codozor/fwkeeper/actions/workflows/go.yml/badge.svg)](https://github.com/codozor/fwkeeper/actions/workflows/go.yml)
-[![Coverage Status](https://coveralls.io/repos/github/codozor/fwkeeper/badge.svg?branch=main)](https://coveralls.io/github/codozor/fwkeeper?branch=main)
+[![Go Report Card](https://goreportcard.com/badge/github.com/codozor/fwkeeper)](https://goreportcard.com/report/github.com/codozor/fwkeeper)
+![Build](https://img.shields.io/github/actions/workflow/status/codozor/fwkeeper/ci.yml)
+[![Coverage Status](https://coveralls.io/repos/github/codozor/fwkeeper/badge.svg)](https://coveralls.io/github/codozor/fwkeeper)
+![Version](https://img.shields.io/github/v/release/codozor/fwkeeper)
+![License](https://img.shields.io/github/license/codozor/fwkeeper)
+![Go Version](https://img.shields.io/github/go-mod/go-version/codozor/fwkeeper)
 
 Port forwarding made easy. A Kubernetes port forwarding tool that automatically maintains persistent port forwards to pods with automatic reconnection and failure recovery.
 
