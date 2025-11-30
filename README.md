@@ -9,6 +9,8 @@
 
 Port forwarding made easy. A Kubernetes port forwarding tool that automatically maintains persistent port forwards to pods with automatic reconnection and failure recovery.
 
+![fwkeeper architecture](assets/architecture.png)
+
 ## Features
 
 - 🔄 **Automatic Port Forwarding**: Maintains persistent port forwards to Kubernetes pods
