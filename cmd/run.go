@@ -15,7 +15,6 @@ import (
 )
 
 func cmdStart() *cobra.Command {
-
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "run fwkeeper",

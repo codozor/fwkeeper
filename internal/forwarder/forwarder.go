@@ -95,10 +95,10 @@ func New(loc locator.Locator, configuration config.PortForwardConfiguration, cli
 		configuration: configuration,
 		client:        client,
 
-		restConfig:    restCfg,
+		restConfig: restCfg,
 
-		transport:     transport,
-		upgrader:      upgrader,
+		transport: transport,
+		upgrader:  upgrader,
 
 		retryConfig: DefaultRetryConfig(),
 		attempt:     0,

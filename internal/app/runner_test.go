@@ -1008,7 +1008,7 @@ func TestReloadConfigMultipleSequentialReloads(t *testing.T) {
 
 	// Third reload
 	cfg3 := config.Configuration{
-		Logs: config.LogsConfiguration{Level: "debug", Pretty: true},
+		Logs:     config.LogsConfiguration{Level: "debug", Pretty: true},
 		Forwards: []config.PortForwardConfiguration{},
 	}
 	runner.mu.Lock()
@@ -1045,7 +1045,7 @@ forwards: [
 ]
 `
 
-	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	err := os.WriteFile(configPath, []byte(configContent), 0o644)
 	require.NoError(t, err)
 
 	// Load config from the file
@@ -1095,7 +1095,7 @@ forwards: [
 ]
 `
 
-	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	err := os.WriteFile(configPath, []byte(configContent), 0o644)
 	require.NoError(t, err)
 
 	cfg, err := config.ReadConfiguration(configPath)
@@ -1131,7 +1131,7 @@ forwards: [
 ]
 `
 
-	err := os.WriteFile(configPath, []byte(initialConfig), 0644)
+	err := os.WriteFile(configPath, []byte(initialConfig), 0o644)
 	require.NoError(t, err)
 
 	// Load initial config
@@ -1165,7 +1165,7 @@ forwards: [
 	// Wait a moment to ensure file system timestamp differs
 	time.Sleep(10 * time.Millisecond)
 
-	err = os.WriteFile(configPath, []byte(modifiedConfig), 0644)
+	err = os.WriteFile(configPath, []byte(modifiedConfig), 0o644)
 	require.NoError(t, err)
 
 	// Load the modified config
@@ -1199,7 +1199,7 @@ forwards: [
 ]
 `
 
-	err := os.WriteFile(configPath, []byte(invalidConfig), 0644)
+	err := os.WriteFile(configPath, []byte(invalidConfig), 0o644)
 	require.NoError(t, err)
 
 	// Loading should fail due to validation errors
@@ -1278,7 +1278,7 @@ logs: {
 forwards: []
 `
 
-	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	err := os.WriteFile(configPath, []byte(configContent), 0o644)
 	require.NoError(t, err)
 
 	// Load the configuration
@@ -1307,7 +1307,7 @@ func TestFileWatcherConfigPath(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "test-config.cue")
 
 	// Create a dummy config file
-	err := os.WriteFile(configPath, []byte("logs: {level: \"info\", pretty: false}\nforwards: []"), 0644)
+	err := os.WriteFile(configPath, []byte("logs: {level: \"info\", pretty: false}\nforwards: []"), 0o644)
 	require.NoError(t, err)
 
 	initialCfg := config.Configuration{
@@ -1795,7 +1795,7 @@ logs: {
 forwards: []
 `
 
-	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	err := os.WriteFile(configPath, []byte(configContent), 0o644)
 	require.NoError(t, err)
 
 	cfg, err := config.ReadConfiguration(configPath)

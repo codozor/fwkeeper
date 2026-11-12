@@ -1,20 +1,20 @@
 package cmd
 
-import(
+import (
 	"github.com/spf13/cobra"
 )
 
 func cmdRoot() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "fwkeeper",
+		Use: "fwkeeper",
 
 		Short: "fwkeeper",
 
-		Long:  `Port forwarding made easy.`,
+		Long: `Port forwarding made easy.`,
 
-		CompletionOptions:  cobra.CompletionOptions{ HiddenDefaultCmd: true },
+		CompletionOptions: cobra.CompletionOptions{HiddenDefaultCmd: true},
 
-		SilenceUsage: true,
+		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
 
@@ -27,6 +27,6 @@ func cmdRoot() *cobra.Command {
 
 func Execute() error {
 	cmd := cmdRoot()
-	
+
 	return cmd.Execute()
 }

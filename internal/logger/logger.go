@@ -3,7 +3,7 @@ package logger
 import (
 	"io"
 	"os"
-	
+
 	"github.com/samber/do/v2"
 
 	"github.com/rs/zerolog"
@@ -40,7 +40,7 @@ func loggerProvider(injector do.Injector) (zerolog.Logger, error) {
 	}
 
 	if configuration.Logs.Pretty {
-		output = zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: "2006/01/02 15:04:05.000" }
+		output = zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: "2006/01/02 15:04:05.000"}
 	}
 
 	return zerolog.New(output).With().Timestamp().Logger(), nil

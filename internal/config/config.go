@@ -1,9 +1,9 @@
 package config
 
 import (
+	"fmt"
 	"io"
 	"os"
-	"fmt"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -15,22 +15,22 @@ import (
 )
 
 type PortForwardConfiguration struct {
-	Name      string   `json:"name"`
-	Ports     []string `json:"ports"`
+	Name  string   `json:"name"`
+	Ports []string `json:"ports"`
 
-	Namespace string   `json:"namespace"`
-	Resource  string   `json:"resource"`
+	Namespace string `json:"namespace"`
+	Resource  string `json:"resource"`
 }
 
 type LogsConfiguration struct {
-	Level string `json:"level"`
+	Level  string `json:"level"`
 	Pretty bool   `json:"pretty"`
 }
 
 type Configuration struct {
 	Forwards []PortForwardConfiguration `json:"forwards"`
 
-	Logs    LogsConfiguration `json:"logs"`
+	Logs LogsConfiguration `json:"logs"`
 }
 
 //go:embed schema.cue
@@ -55,7 +55,7 @@ func ReadConfiguration(filename string) (Configuration, error) {
 	if configVal.Err() != nil {
 		return configuration, configVal.Err()
 	}
-		
+
 	unified := schemalVal.Unify(configVal)
 	if unified.Err() != nil {
 		return configuration, unified.Err()
