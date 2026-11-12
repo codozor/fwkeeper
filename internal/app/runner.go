@@ -16,6 +16,7 @@ import (
 
 	"github.com/codozor/fwkeeper/internal/config"
 	"github.com/codozor/fwkeeper/internal/forwarder"
+	kubeinternal "github.com/codozor/fwkeeper/internal/kubernetes"
 	"github.com/codozor/fwkeeper/internal/locator"
 )
 
@@ -30,8 +31,7 @@ type Runner struct {
 
 	restCfg *rest.Config
 
-	kubeConfigSource  string
-	kubeConfigContext string
+	kubeInfo kubeinternal.RestConfigInfo
 
 	// forwarders is a map of forward name to forwarder for easy management
 	forwarders map[string]*forwarder.Forwarder
@@ -52,20 +52,17 @@ func New(
 	configPath string,
 	logger zerolog.Logger,
 	client kubernetes.Interface,
-	restCfg *rest.Config,
-	kubeConfigSource string,
-	kubeConfigContext string,
+	kubeInfo kubeinternal.RestConfigInfo,
 ) *Runner {
 	return &Runner{
-		configuration:     configuration,
-		configPath:        configPath,
-		logger:            logger,
-		client:            client,
-		restCfg:           restCfg,
-		kubeConfigSource:  kubeConfigSource,
-		kubeConfigContext: kubeConfigContext,
-		forwarders:        make(map[string]*forwarder.Forwarder),
-		forwarderCancel:   make(map[string]context.CancelFunc),
+		configuration:   configuration,
+		configPath:      configPath,
+		logger:          logger,
+		client:          client,
+		restCfg:         kubeInfo.Config,
+		kubeInfo:        kubeInfo,
+		forwarders:      make(map[string]*forwarder.Forwarder),
+		forwarderCancel: make(map[string]context.CancelFunc),
 	}
 }
 
@@ -79,7 +76,14 @@ func (r *Runner) Start() error {
 
 	log := zerolog.Ctx(ctx)
 
-	log.Info().Msgf("Kubernetes config source: %s (context: %s)", r.kubeConfigSource, r.kubeConfigContext)
+	host := ""
+	if r.restCfg != nil {
+		host = r.restCfg.Host
+	}
+	log.Info().Msgf("Kubernetes context: %s -> %s (kubeconfig: %s)", r.kubeInfo.Context, host, r.kubeInfo.Source)
+	for _, w := range r.kubeInfo.Warnings {
+		log.Warn().Msgf("Kubeconfig: %s", w)
+	}
 
 	// Start initial forwarders
 	nErr := r.startForwarders(ctx)
@@ -292,6 +296,11 @@ func (r *Runner) reloadConfig(ctx context.Context) {
 
 	log.Info().Msg("Configuration reloaded successfully")
 
+	if newConfig.Context != r.configuration.Context {
+		log.Warn().Msgf("Kubeconfig context changed from %q to %q: context is only applied at startup, forwards keep using %s",
+			r.configuration.Context, newConfig.Context, r.kubeInfo.Context)
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -370,4 +379,3 @@ func (r *Runner) Shutdown() {
 	log.Info().Msg(`fwkeeper Stopped`)
 	log.Info().Msg(`------------------------------------------------------------------`)
 }
-

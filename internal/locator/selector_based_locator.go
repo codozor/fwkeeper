@@ -4,10 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/labels"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -55,11 +54,8 @@ func (l *SelectorBasedLocator) Locate(ctx context.Context) (string, []string, er
 		return "", []string{}, NewAPITransientError(fmt.Sprintf("failed to list pods for %s %s", l.resourceType, l.resourceName), err)
 	}
 
-	// Find the first running pod
-	for _, p := range pods.Items {
-		if p.Status.Phase == corev1.PodRunning {
-			return p.Name, l.ports, nil
-		}
+	if p := selectPod(pods.Items); p != nil {
+		return p.Name, l.ports, nil
 	}
 
 	return "", []string{}, &LocateError{
@@ -100,7 +96,7 @@ func (l *SelectorBasedLocator) getDeploymentSelector(ctx context.Context) (label
 		return nil, NewConfigInvalidError(fmt.Sprintf("deployment %s has no selector", l.resourceName), nil)
 	}
 
-	return labels.Set(deployment.Spec.Selector.MatchLabels).AsSelector(), nil
+	return toSelector("deployment", l.resourceName, deployment.Spec.Selector)
 }
 
 // getStatefulSetSelector retrieves the selector from a StatefulSet.
@@ -120,7 +116,7 @@ func (l *SelectorBasedLocator) getStatefulSetSelector(ctx context.Context) (labe
 		return nil, NewConfigInvalidError(fmt.Sprintf("statefulset %s has no selector", l.resourceName), nil)
 	}
 
-	return labels.Set(statefulSet.Spec.Selector.MatchLabels).AsSelector(), nil
+	return toSelector("statefulset", l.resourceName, statefulSet.Spec.Selector)
 }
 
 // getDaemonSetSelector retrieves the selector from a DaemonSet.
@@ -140,5 +136,17 @@ func (l *SelectorBasedLocator) getDaemonSetSelector(ctx context.Context) (labels
 		return nil, NewConfigInvalidError(fmt.Sprintf("daemonset %s has no selector", l.resourceName), nil)
 	}
 
-	return labels.Set(daemonSet.Spec.Selector.MatchLabels).AsSelector(), nil
+	return toSelector("daemonset", l.resourceName, daemonSet.Spec.Selector)
+}
+
+// toSelector converts a LabelSelector, including matchExpressions, into a labels.Selector.
+func toSelector(resourceType, name string, ls *metav1.LabelSelector) (labels.Selector, error) {
+	selector, err := metav1.LabelSelectorAsSelector(ls)
+	if err != nil {
+		return nil, NewConfigInvalidError(fmt.Sprintf("%s %s has an invalid selector", resourceType, name), err)
+	}
+	if selector.Empty() {
+		return nil, NewConfigInvalidError(fmt.Sprintf("%s %s has an empty selector", resourceType, name), nil)
+	}
+	return selector, nil
 }

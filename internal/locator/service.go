@@ -50,6 +50,11 @@ func (l *ServiceLocator) Locate(ctx context.Context) (string, []string, error) {
 		return "", []string{}, NewAPITransientError(fmt.Sprintf("failed to get service %s", l.svcName), err)
 	}
 
+	// A service without selector (manual Endpoints, ExternalName) would match every pod of the namespace
+	if len(svc.Spec.Selector) == 0 {
+		return "", []string{}, NewConfigInvalidError(fmt.Sprintf("service %s has no selector, cannot find its pods", l.svcName), nil)
+	}
+
 	labelSelector := labels.Set(svc.Spec.Selector).AsSelector()
 
 	pods, err := l.client.CoreV1().Pods(l.namespace).List(ctx, metav1.ListOptions{
@@ -66,15 +71,13 @@ func (l *ServiceLocator) Locate(ctx context.Context) (string, []string, error) {
 		return "", []string{}, NewAPITransientError(fmt.Sprintf("failed to list pods for service %s", l.svcName), err)
 	}
 
-	for _, p := range pods.Items {
-		if p.Status.Phase == corev1.PodRunning {
-			ports, err := l.mapPorts(svc, &p)
-			if err != nil {
-				return "", []string{}, err
-			}
-
-			return p.Name, ports, nil
+	if p := selectPod(pods.Items); p != nil {
+		ports, err := l.mapPorts(svc, p)
+		if err != nil {
+			return "", []string{}, err
 		}
+
+		return p.Name, ports, nil
 	}
 
 	// No running pods found for service

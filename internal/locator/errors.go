@@ -16,12 +16,12 @@ const (
 	ErrorTypeAPITransient     // API timeout, server error (5xx)
 
 	// Permanent errors - fail fast or give up after few retries
-	ErrorTypeResourceNotFound  // Pod, Service, Deployment doesn't exist
-	ErrorTypePodNotRunning     // Pod exists but not in Running state
-	ErrorTypePodFailed         // Pod in Failed state
-	ErrorTypeConfigInvalid     // Invalid configuration (port, selector, etc)
-	ErrorTypePermissionDenied  // No permission to access resource
-	ErrorTypeNoPodAvailable    // No running pods available for resource (might retry longer)
+	ErrorTypeResourceNotFound // Pod, Service, Deployment doesn't exist
+	ErrorTypePodNotRunning    // Pod exists but not in Running state
+	ErrorTypePodFailed        // Pod in Failed state
+	ErrorTypeConfigInvalid    // Invalid configuration (port, selector, etc)
+	ErrorTypePermissionDenied // No permission to access resource
+	ErrorTypeNoPodAvailable   // No running pods available for resource (might retry longer)
 )
 
 // LocateError wraps location errors with type information for intelligent retry handling

@@ -1,2 +1,5 @@
 .vscode/
 fwkeeper
+
+# Local configuration (see fwkeeper.example.cue)
+fwkeeper.cue

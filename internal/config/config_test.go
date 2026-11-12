@@ -95,5 +95,27 @@ forwards: [{
 
 // Helper function to write test files
 func writeTestFile(path string, content string) error {
-	return os.WriteFile(path, []byte(content), 0644)
+	return os.WriteFile(path, []byte(content), 0o644)
+}
+
+// TestReadConfigurationContext tests the optional kubeconfig context field
+func TestReadConfigurationContext(t *testing.T) {
+	cfg, err := ReadConfiguration("testdata/with-context.cue")
+	require.NoError(t, err)
+	assert.Equal(t, "staging", cfg.Context)
+
+	cfg, err = ReadConfiguration("testdata/valid.cue")
+	require.NoError(t, err)
+	assert.Empty(t, cfg.Context, "context is optional")
+
+	_, err = ReadConfiguration("testdata/empty-context.cue")
+	assert.Error(t, err, "an empty context must be rejected")
+}
+
+// TestExampleConfiguration ensures the example shipped at the repository root stays valid
+func TestExampleConfiguration(t *testing.T) {
+	cfg, err := ReadConfiguration("../../fwkeeper.example.cue")
+	require.NoError(t, err)
+	assert.Equal(t, "dev-cluster", cfg.Context)
+	assert.Len(t, cfg.Forwards, 4)
 }
