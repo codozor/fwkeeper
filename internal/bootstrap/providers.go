@@ -21,7 +21,8 @@ var Providers = do.Package(
 
 // restConfigInfoProvider creates a Kubernetes REST client configuration with source info.
 func restConfigInfoProvider(injector do.Injector) (kubeinternal.RestConfigInfo, error) {
-	return kubeinternal.NewRestConfig()
+	opts := do.MustInvoke[kubeinternal.Options](injector)
+	return kubeinternal.NewRestConfig(opts)
 }
 
 // restConfigProvider extracts just the config from RestConfigInfo.
@@ -43,8 +44,7 @@ func runnerProvider(injector do.Injector) (*app.Runner, error) {
 	configPath := do.MustInvoke[string](injector)
 	logger := do.MustInvoke[zerolog.Logger](injector)
 	client := do.MustInvoke[kubernetes.Interface](injector)
-	restCfg := do.MustInvoke[*rest.Config](injector)
 	restConfigInfo := do.MustInvoke[kubeinternal.RestConfigInfo](injector)
 
-	return app.New(cfg, configPath, logger, client, restCfg, restConfigInfo.Source, restConfigInfo.Context), nil
+	return app.New(cfg, configPath, logger, client, restConfigInfo), nil
 }

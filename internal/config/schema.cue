@@ -18,6 +18,9 @@
     resource: string
 }
 
+// kubeconfig context to use, defaults to the current-context
+context?: string & !=""
+
 forwards: [...#PortForwardConfiguration]
 
 logs: #LogsConfiguration

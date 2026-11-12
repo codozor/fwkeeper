@@ -21,6 +21,8 @@ func cmdRoot() *cobra.Command {
 	cmd.AddCommand(cmdStart())
 
 	cmd.PersistentFlags().StringP("config", "c", "fwkeeper.cue", "Configuration file")
+	cmd.PersistentFlags().String("kubeconfig", "", "Path to the kubeconfig file (default: $KUBECONFIG or ~/.kube/config)")
+	cmd.PersistentFlags().String("context", "", "Kubeconfig context to use (overrides the 'context' field of the configuration)")
 
 	return cmd
 }

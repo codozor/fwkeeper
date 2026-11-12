@@ -28,6 +28,9 @@ type LogsConfiguration struct {
 }
 
 type Configuration struct {
+	// Context is the kubeconfig context to use (optional, defaults to current-context).
+	Context string `json:"context,omitempty"`
+
 	Forwards []PortForwardConfiguration `json:"forwards"`
 
 	Logs LogsConfiguration `json:"logs"`

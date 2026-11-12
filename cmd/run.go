@@ -12,6 +12,7 @@ import (
 	"github.com/codozor/fwkeeper/internal/app"
 	"github.com/codozor/fwkeeper/internal/bootstrap"
 	"github.com/codozor/fwkeeper/internal/config"
+	kubeinternal "github.com/codozor/fwkeeper/internal/kubernetes"
 )
 
 func cmdStart() *cobra.Command {
@@ -33,6 +34,16 @@ func cmdStart() *cobra.Command {
 			// Provide configuration and config path to the injector
 			do.ProvideValue(injector, configuration)
 			do.ProvideValue(injector, cfgFilename)
+
+			// Kubeconfig selection: --context flag > 'context' field of the configuration > current-context
+			kubeOpts := kubeinternal.Options{
+				Kubeconfig: cmd.Flag("kubeconfig").Value.String(),
+				Context:    configuration.Context,
+			}
+			if flagCtx := cmd.Flag("context").Value.String(); flagCtx != "" {
+				kubeOpts.Context = flagCtx
+			}
+			do.ProvideValue(injector, kubeOpts)
 
 			// Bootstrap all dependencies
 			bootstrap.Package(injector)

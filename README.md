@@ -72,7 +72,13 @@ go build -o fwkeeper ./
 
 ### 1. Create a Configuration File
 
-Create a `fwkeeper.cue` file:
+Start from the commented example (`fwkeeper.cue` is ignored by git):
+
+```bash
+cp fwkeeper.example.cue fwkeeper.cue
+```
+
+A minimal `fwkeeper.cue` looks like:
 
 ```cue
 logs: {
@@ -129,9 +135,25 @@ fwkeeper uses [CUE](https://cuelang.org/) for configuration validation and schem
 #### Top-Level Structure
 
 ```cue
+context: "my-context"   # optional, kubeconfig context to use
 logs: { ... }
 forwards: [ ... ]
 ```
+
+#### Kubernetes Context
+
+```cue
+context: "dev-cluster"   # optional: kubeconfig context used by all forwards
+```
+
+Context selection, by priority:
+1. `--context` flag
+2. `context` field of the configuration file
+3. `current-context` of the kubeconfig
+
+Pinning the context in the configuration file avoids opening tunnels to the wrong cluster
+after a `kubectl config use-context`. The context is only read at startup: changing it in the
+file while fwkeeper is running logs a warning and requires a restart.
 
 #### Logs Configuration
 
@@ -175,17 +197,29 @@ When using a Service, Deployment, StatefulSet, or DaemonSet, fwkeeper automatica
 - Namespace and resource must be specified
 - Local ports must be unique across all forwards
 
-### Environment Variables
+### Kubeconfig Resolution
+
+fwkeeper resolves the kubeconfig exactly like `kubectl`:
 
 ```bash
-# Override kubeconfig location
-KUBECONFIG=/path/to/kubeconfig ./fwkeeper run
+# Explicit file (no merging)
+./fwkeeper run --kubeconfig /path/to/kubeconfig
 
-# Use default kubeconfig locations
-# 1. $KUBECONFIG environment variable
-# 2. ~/.kube/config
-# 3. In-cluster config (if running inside Kubernetes)
+# Several files, merged like kubectl (':' separated, ';' on Windows)
+KUBECONFIG=~/.kube/config:~/.kube/k3s.yaml ./fwkeeper run --context k3s
+
+# Default locations
+# 1. --kubeconfig flag
+# 2. $KUBECONFIG (list of files, merged)
+# 3. ~/.kube/config
+# 4. In-cluster config (if running inside Kubernetes)
 ```
+
+When several files are merged, the **first file defining a name wins** (for contexts,
+clusters and users). As contexts reference clusters and users by name, two files using the
+same names (e.g. `default` in k3s/kind kubeconfigs) can make a context silently point to
+another cluster. fwkeeper logs the server URL of the selected context at startup and warns
+when the context, its cluster or its user is defined in several files.
 
 ## Usage
 
